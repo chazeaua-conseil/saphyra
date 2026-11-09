@@ -204,6 +204,17 @@ dialog::backdrop{background:rgba(10,14,30,.35)}
 .ev.done{text-decoration:line-through;opacity:.55}
 .ev.mile{background:var(--accent-soft);border-left-color:var(--accent);font-weight:600}
 .ev.late{border-left-color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,var(--surface))}
+.ev.meet{--c:var(--ok);background:color-mix(in srgb,var(--ok) 22%,var(--surface));font-weight:600}
+.ev.meet small{font:600 10.5px var(--mono);margin-right:3px;opacity:.85}
+.agenda li.meet{grid-template-columns:auto 1fr;cursor:pointer;--c:var(--ok)}
+.agenda li.meet .when{font:600 12px var(--mono);color:var(--ok);min-width:44px;padding-top:1px}
+.agenda li.meet .sub{grid-column:2;font-size:12px;color:var(--muted)}
+.agenda li.meet .idea{grid-column:2}
+.meets{list-style:none;margin:0 0 14px;padding:0;display:flex;flex-direction:column;gap:6px}
+.meets li{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;padding:7px 9px;border-radius:8px;border-left:3px solid var(--ok);background:var(--sunk);cursor:pointer}
+.meets li .when{font:600 12px var(--mono);color:var(--ok)}
+.meets li .sub{grid-column:2;font-size:12px;color:var(--muted)}
+.mtimes{display:flex;gap:8px;flex-wrap:wrap}.mtimes .field{flex:1;min-width:120px}
 .more{font-size:11px;color:var(--muted)}
 .agenda h3{font:600 13px var(--body);color:var(--muted);margin:14px 0 6px;display:flex;gap:6px;align-items:center}
 .agenda h3:first-of-type{margin-top:4px}
@@ -271,6 +282,33 @@ dialog::backdrop{background:rgba(10,14,30,.35)}
   </form>
 </dialog>
 
+<dialog id="dlgMeet">
+  <form id="formMeet">
+    <div class="m-head"><h2 id="mHead">Nouvelle réunion</h2><button class="btn ghost sm" type="button" data-close>Fermer</button></div>
+    <div class="m-body">
+      <div class="field"><label for="mTitle">Objet</label><input id="mTitle" required maxlength="200" placeholder="Ex. Point d'avancement avec Baptiste"></div>
+      <div class="mtimes">
+        <div class="field"><label for="mDate">Date</label><input type="date" id="mDate" required></div>
+        <div class="field"><label for="mStart">Début</label><input type="time" id="mStart"></div>
+        <div class="field"><label for="mEnd">Fin</label><input type="time" id="mEnd"></div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label for="mKind">Type</label><select id="mKind"></select></div>
+        <div class="field"><label for="mIdea">Idée liée</label><select id="mIdea"></select></div>
+      </div>
+      <div class="field"><label for="mLoc">Lieu ou lien</label><input id="mLoc" maxlength="300" placeholder="Visio Teams, bureaux du client…"></div>
+      <div class="field"><label for="mWho">Participants</label><input id="mWho" maxlength="500" placeholder="Baptiste, DAF du client…"></div>
+      <div class="field"><label for="mNotes">Notes</label><textarea id="mNotes" rows="4" placeholder="Ordre du jour, compte rendu, suites à donner…"></textarea></div>
+      <p class="hint" id="mStatus"></p>
+    </div>
+    <div class="m-foot">
+      <button class="btn" type="button" id="mDelete" hidden>Supprimer</button>
+      <span style="margin-right:auto"></span>
+      <button class="btn primary" type="submit" id="mSave">Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="dlgReview">
   <div class="m-head"><h2>Revue du portefeuille</h2><button class="btn ghost sm" type="button" data-close>Fermer</button></div>
   <div class="m-body"><div class="msg assistant" id="reviewOut" style="max-width:100%">…</div></div>
@@ -292,6 +330,7 @@ const TYPES = ["Appli SAP","Outil interne","Offre de conseil","Asset / contenu",
 const OWNERS = ["André","Baptiste","Rachid","SAPHYRA"];
 const PRIOS = ["P1","P2","P3"];
 const TAGS = ["SAP PM/CS","Clean core","IA","BTP","POC"];
+const MKINDS = ["Réunion","Rendez-vous client","Appel","Atelier","Événement","Autre"];
 const F = {title:"Idée",stage:"Étape",type:"Type",priority:"Priorité",owner:"Porteur",tags:"Tags",pitch:"Pitch",problem:"Problème",
   target:"Cible",value:"Proposition de valeur",business:"Modèle économique",nextStep:"Prochaine étape",valeur:"Valeur",effort:"Effort",confiance:"Confiance",progress:"Avancement"};
 const EDITABLE = ["title","stage","type","priority","owner","tags","pitch","problem","target","value","business","nextStep","due","valeur","effort","confiance","progress"];
@@ -301,7 +340,7 @@ const TEXTS = [["pitch","Pitch","2-3 phrases : de quoi s'agit-il ?"],["problem",
 
 /* ---------- État ---------- */
 const S = {ideas:new Map(), bodies:new Map(), bodyP:new Map(), sel:null, tab:"fiche", view:"board", q:"", fType:"", fOwner:"", arch:false,
-  loaded:false, lastSync:null, hasMore:false, chats:new Map(), deep:false, busy:false, ctl:null, undo:null, error:null};
+  loaded:false, lastSync:null, hasMore:false, meetings:[], meetErr:null, chats:new Map(), deep:false, busy:false, ctl:null, undo:null, error:null};
 let mcp=null, sample=null, db=null, uid=null, toolsOK=false, aiOff=null;
 
 /* ---------- Utilitaires ---------- */
@@ -467,7 +506,7 @@ setInterval(()=>{ if(syncState==="ok") setSync("ok"); }, 30000);
 async function loadAll(quiet){
   if(!quiet) setSync("loading");
   try{
-    const p = await db_("list_ideas",{include_body:true});
+    const [p] = await Promise.all([db_("list_ideas",{include_body:true}), loadMeetings()]);
     const rows = (p && p.ideas) || [];
     const fresh = new Map();
     for(const r of rows){ const i=rowToIdea(r); const q=Q.get(i.id); if(q) Object.assign(i, q.patch); fresh.set(i.id,i);
@@ -476,6 +515,11 @@ async function loadAll(quiet){
     renderMain();
     if(S.sel){ if(!S.ideas.has(S.sel)) closeDrawer(); else if(!S.busy && !document.querySelector("#drawer :focus")) renderDrawer(); }
   }catch(e){ S.error=e; setSync("error"); renderMain(); }
+}
+
+async function loadMeetings(){
+  try{ const p=await db_("list_meetings",{}); S.meetings=(p&&p.meetings)||[]; S.meetErr=null; }
+  catch(e){ S.meetErr=e; }
 }
 
 /* ---------- Rendu principal ---------- */
@@ -570,10 +614,13 @@ function renderCalendar(list){
   const tasks=allTasks(list).filter(x=>S.showDone||!x.t.done);
   const byDay={}; for(const x of tasks) if(x.t.due) (byDay[x.t.due]=byDay[x.t.due]||[]).push(x);
   const miles={}; for(const i of list) if(i.due) (miles[i.due]=miles[i.due]||[]).push(i);
+  const meets=S.meetings.filter(m=>!m.ideaId||list.some(i=>i.id===m.ideaId)||!S.ideas.has(m.ideaId));
+  const meetsByDay={}; for(const m of meets) (meetsByDay[m.date]=meetsByDay[m.date]||[]).push(m);
   let grid=["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"].map(d=>`<div class="dow">${d}</div>`).join("");
   for(let c=0;c<cells;c++){
     const d=addDays(start,c);
-    const evs=[...(miles[d]||[]).map(i=>`<button type="button" class="ev mile" data-open="${esc(i.id)}" data-opentab="fiche" title="Échéance de l'idée : ${esc(i.title)}">◆ ${esc(i.title)}</button>`),
+    const evs=[...(meetsByDay[d]||[]).map(m=>`<button type="button" class="ev meet" data-meet="${esc(m.id)}" title="${esc(meetTitle(m))}">${m.start?`<small>${esc(m.start)}</small>`:""}${esc(m.title)}</button>`),
+      ...(miles[d]||[]).map(i=>`<button type="button" class="ev mile" data-open="${esc(i.id)}" data-opentab="fiche" title="Échéance de l'idée : ${esc(i.title)}">◆ ${esc(i.title)}</button>`),
       ...(byDay[d]||[]).map(x=>`<button type="button" class="ev${x.t.done?" done":""}${!x.t.done&&d<td?" late":""}" style="--c:var(${stageC(x.i.stage)})" data-open="${esc(x.i.id)}" data-opentab="plan" title="${esc(x.i.title)} — ${esc(clean(x.t.text))}">${esc(clean(x.t.text))}</button>`)];
     grid+=`<div class="day${d.slice(0,7)!==S.calMonth?" out":""}${c%7>4?" we":""}${d===td?" today":""}${S.calDay===d?" sel":""}" data-day="${d}" tabindex="0" aria-label="${esc(frDate(d))}${evs.length?`, ${evs.length} élément(s)`:""}">
       <div class="num"><b>${Number(d.slice(8))}</b></div>${evs.slice(0,3).join("")}${evs.length>3?`<span class="more">+${evs.length-3} de plus</span>`:""}</div>`;
@@ -582,12 +629,15 @@ function renderCalendar(list){
   const we=weekEnd(td); const open=tasks.filter(x=>!x.t.done);
   let agenda="";
   if(S.calDay){
-    const items=tasks.filter(x=>x.t.due===S.calDay), ms=miles[S.calDay]||[];
-    agenda=`<h3>${esc(frDate(S.calDay))} <em>${items.length}</em></h3>`
+    const items=tasks.filter(x=>x.t.due===S.calDay), ms=miles[S.calDay]||[], dm=meetsByDay[S.calDay]||[];
+    agenda=`<h3>${esc(frDate(S.calDay))} <em>${items.length+dm.length}</em></h3>`
+      + (dm.length?`<ul>${dm.map(meetRow).join("")}</ul>`:"")
       + (ms.length?`<ul>${ms.map(i=>`<li style="--c:var(--accent)"><span></span><span class="t"><b>◆ Échéance</b></span><span></span><button type="button" class="idea" data-open="${esc(i.id)}" data-opentab="fiche">${esc(i.ref)} · ${esc(i.title)}</button></li>`).join("")}</ul>`:"")
-      + (items.length?`<ul>${items.map(x=>agendaRow(x,td)).join("")}</ul>`:`<p class="hint">Rien de prévu ce jour-là.</p>`)
-      + `<p><button class="btn sm" type="button" data-act="allDays">Voir toutes les tâches prévues</button></p>`;
+      + (items.length?`<ul>${items.map(x=>agendaRow(x,td)).join("")}</ul>`:(dm.length||ms.length?"":`<p class="hint">Rien de prévu ce jour-là.</p>`))
+      + `<p style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm" type="button" data-act="newMeet">+ Réunion ce jour-là</button><button class="btn sm" type="button" data-act="allDays">Voir tout le calendrier</button></p>`;
   } else {
+    const soon=meets.filter(m=>m.date>=td&&m.date<=addDays(td,30));
+    if(soon.length) agenda+=`<h3>Réunions et rencontres (30 jours) <em>${soon.length}</em></h3><ul>${soon.slice(0,10).map(meetRow).join("")}</ul>`;
     const groups=[
       ["En retard", open.filter(x=>x.t.due&&x.t.due<td), "bad"],
       ["Aujourd'hui", tasks.filter(x=>x.t.due===td), ""],
@@ -597,10 +647,11 @@ function renderCalendar(list){
       agenda+=`<h3 class="${cls}">${l} <em>${items.length}</em></h3><ul>${items.map(x=>agendaRow(x,td)).join("")}</ul>`; }
     const upcoming=list.filter(i=>i.due&&i.due>=td).sort((a,b)=>a.due.localeCompare(b.due)).slice(0,6);
     if(upcoming.length) agenda+=`<h3>Échéances des idées <em>${upcoming.length}</em></h3><ul>${upcoming.map(i=>`<li style="--c:var(--accent)"><span></span><span class="t">◆ ${esc(frDate(i.due,{day:"numeric",month:"short"}))}</span><span></span><button type="button" class="idea" data-open="${esc(i.id)}" data-opentab="fiche">${esc(i.ref)} · ${esc(i.title)}</button></li>`).join("")}</ul>`;
-    if(!agenda) agenda=`<p class="hint">Aucune tâche datée. Donnez une date aux tâches dans l'onglet Plan d'une fiche, ou planifiez-en une ci-dessous.</p>`;
+    if(!agenda) agenda=`<p class="hint">Rien de prévu. Planifiez une réunion avec « + Réunion », ou une tâche ci-dessous.</p>`;
     const nodate=open.filter(x=>!x.t.due);
     if(nodate.length) agenda+=`<details><summary>Sans date (${nodate.length})</summary><ul>${nodate.map(x=>agendaRow(x,td)).join("")}</ul></details>`;
   }
+  const meetWarn = S.meetErr ? `<p class="hint">Réunions non chargées : ${esc(errCopy(S.meetErr))}</p>` : "";
   const loading = S.bodiesLoading ? `<p class="hint">Lecture des plans d'action… ${esc(S.bodiesProgress)}</p>`
     : S.bodiesFailed ? `<p class="hint">${S.bodiesFailed} fiche(s) n'ont pas pu être lues : ${esc(errCopy(S.bodyErr))}</p>` : "";
   const qa=S.qadd, ideaOpts=list.map(i=>`<option value="${esc(i.id)}"${qa.idea===i.id?" selected":""}>${esc(i.ref)} · ${esc(trunc(i.title,60))}</option>`).join("");
@@ -609,13 +660,14 @@ function renderCalendar(list){
       <div class="cal-head"><h2 class="month">${esc(frDate(first,{month:"long",year:"numeric"}))}</h2>
         <button class="btn sm" type="button" data-act="prev" aria-label="Mois précédent">◀</button>
         <button class="btn sm" type="button" data-act="today">Aujourd'hui</button>
-        <button class="btn sm" type="button" data-act="next" aria-label="Mois suivant">▶</button></div>
+        <button class="btn sm" type="button" data-act="next" aria-label="Mois suivant">▶</button>
+        <button class="btn primary sm" type="button" data-act="newMeet">+ Réunion</button></div>
       <div class="cal-grid">${grid}</div>
-      <p class="hint" style="margin:8px 0 0">◆ échéance d'une idée · couleur = étape de l'idée · cliquez un jour pour voir sa liste, une tâche pour ouvrir la fiche.</p>
+      <p class="hint" style="margin:8px 0 0">Vert plein = réunion ou rencontre · ◆ échéance d'une idée · autres couleurs = tâches, selon l'étape de l'idée. Cliquez un jour pour voir sa liste, une réunion pour la modifier, une tâche pour ouvrir la fiche.</p>
     </section>
-    <section class="panel agenda" aria-label="Tâches prévues">
-      <div class="cal-head"><h2>Tâches prévues</h2><label class="chk"><input type="checkbox" id="showDone" ${S.showDone?"checked":""}> Terminées</label></div>
-      ${loading}${agenda}
+    <section class="panel agenda" aria-label="Agenda">
+      <div class="cal-head"><h2>Agenda</h2><label class="chk"><input type="checkbox" id="showDone" ${S.showDone?"checked":""}> Terminées</label></div>
+      ${meetWarn}${loading}${agenda}
       <form class="qadd" id="qadd"><span class="flabel">Planifier une tâche</span>
         <input type="text" id="qaText" placeholder="Ex. Appeler l'expert-comptable" value="${esc(qa.text)}" aria-label="Tâche à planifier" required>
         <div class="r"><select id="qaIdea" aria-label="Idée concernée" required><option value="">Idée…</option>${ideaOpts}</select>
@@ -623,6 +675,64 @@ function renderCalendar(list){
         <button class="btn primary" type="submit">Ajouter</button></div></form>
     </section></div>`;
 }
+/* ---------- Réunions et rencontres ---------- */
+const meetWhen = m => m.start ? m.start+(m.end?"–"+m.end:"") : "Journée";
+const meetTitle = m => [meetWhen(m), m.title, m.kind, m.location, m.participants].filter(Boolean).join(" · ");
+function meetRow(m){
+  const sub=[m.kind!=="Réunion"?m.kind:"", m.location, m.participants].filter(Boolean).join(" · ");
+  const idea=m.ideaId&&S.ideas.get(m.ideaId);
+  return `<li class="meet" data-meet="${esc(m.id)}" tabindex="0"><span class="when">${esc(S.calDay?meetWhen(m):frDate(m.date,{day:"numeric",month:"short"}))}</span>
+    <span class="t"><b>${esc(m.title)}</b>${!S.calDay&&m.start?` <span class="hint">${esc(meetWhen(m))}</span>`:""}</span>
+    ${sub?`<span class="sub">${esc(sub)}</span>`:""}
+    ${idea?`<button type="button" class="idea" data-open="${esc(idea.id)}" data-opentab="journal">${esc(idea.ref)} · ${esc(idea.title)}</button>`:""}</li>`;
+}
+const dlgMeet=$("#dlgMeet"); let meetEdit=null, meetSaving=false;
+function openMeeting(id, defaults){
+  const m = id ? S.meetings.find(x=>x.id===id) : null; if(id && !m) return;
+  meetEdit = m ? m.id : null;
+  const d = m || {date:S.calDay||today(), start:"", end:"", title:"", kind:"Réunion", location:"", participants:"", notes:"", ideaId:"", ...(defaults||{})};
+  $("#mHead").textContent = m ? "Réunion du "+frDate(m.date,{day:"numeric",month:"long",year:"numeric"}) : "Nouvelle réunion";
+  $("#mTitle").value=d.title; $("#mDate").value=d.date; $("#mStart").value=d.start; $("#mEnd").value=d.end;
+  $("#mKind").innerHTML=opts(MKINDS.includes(d.kind)||!d.kind?MKINDS:[...MKINDS,d.kind], d.kind||"Réunion");
+  $("#mIdea").innerHTML=`<option value="">— Aucune —</option>`+[...S.ideas.values()].sort((a,b)=>a.ref.localeCompare(b.ref,"fr",{numeric:true}))
+    .map(i=>`<option value="${esc(i.id)}"${i.id===d.ideaId?" selected":""}>${esc(i.ref)} · ${esc(trunc(i.title,60))}</option>`).join("");
+  $("#mLoc").value=d.location; $("#mWho").value=d.participants; $("#mNotes").value=d.notes;
+  $("#mDelete").hidden=!m; $("#mStatus").textContent=""; $("#mSave").disabled=$("#mDelete").disabled=false;
+  dlgMeet.showModal(); $("#mTitle").focus();
+}
+async function saveMeeting(){
+  if(meetSaving) return;
+  const v={title:$("#mTitle").value.trim(), date:$("#mDate").value, start:$("#mStart").value, end:$("#mEnd").value, kind:$("#mKind").value,
+    location:$("#mLoc").value.trim(), participants:$("#mWho").value.trim(), notes:$("#mNotes").value, idea_id:$("#mIdea").value};
+  if(!v.title||!v.date){ $("#mStatus").textContent="Indiquez l'objet et la date."; return; }
+  if(v.start&&v.end&&v.end<v.start){ $("#mStatus").textContent="L'heure de fin est avant l'heure de début."; return; }
+  meetSaving=true; $("#mSave").disabled=true; $("#mStatus").textContent="Enregistrement…";
+  const isNew=!meetEdit;
+  try{
+    const m=await db_("save_meeting", meetEdit?{id:meetEdit,...v}:v);
+    S.meetings=S.meetings.filter(x=>x.id!==m.id).concat(m).sort((a,b)=>(a.date+(a.start||"")).localeCompare(b.date+(b.start||"")));
+    dlgMeet.close(); S.calMonth=m.date.slice(0,7); renderMain();
+    if(isNew && m.ideaId && S.ideas.has(m.ideaId)) addJournal(m.ideaId, `Réunion planifiée le ${m.date}${m.start?" à "+m.start:""} : ${m.title}`);
+    if(S.sel && S.tab==="journal") renderTab();
+    toast(isNew?"Réunion ajoutée au calendrier.":"Réunion mise à jour.");
+  }catch(e){ $("#mStatus").textContent=errCopy(e); }
+  finally{ meetSaving=false; $("#mSave").disabled=false; }
+}
+async function deleteMeeting(){
+  if(!meetEdit || meetSaving) return; const m=S.meetings.find(x=>x.id===meetEdit);
+  if($("#mDelete").dataset.confirm!=="1"){ $("#mDelete").dataset.confirm="1"; $("#mDelete").textContent="Confirmer la suppression"; return; }
+  meetSaving=true; $("#mDelete").disabled=true;
+  try{ await db_("delete_meeting",{id:meetEdit}); S.meetings=S.meetings.filter(x=>x.id!==meetEdit); dlgMeet.close(); renderMain();
+    if(S.sel && S.tab==="journal") renderTab();
+    toast("Réunion supprimée.", m?{label:"Annuler", fn:async()=>{ try{ const r=await db_("save_meeting",{date:m.date,start:m.start,end:m.end,title:m.title,kind:m.kind,location:m.location,participants:m.participants,notes:m.notes,idea_id:m.ideaId||""});
+      S.meetings.push(r); renderMain(); }catch(e){ toast(errCopy(e)); } }}:null); }
+  catch(e){ $("#mStatus").textContent=errCopy(e); $("#mDelete").disabled=false; }
+  finally{ meetSaving=false; }
+}
+$("#formMeet").onsubmit=e=>{ e.preventDefault(); saveMeeting(); };
+$("#mDelete").onclick=deleteMeeting;
+dlgMeet.addEventListener("close",()=>{ const b=$("#mDelete"); b.dataset.confirm=""; b.textContent="Supprimer"; });
+
 async function quickAdd(){
   const text=$("#qaText").value.trim(), id=$("#qaIdea").value, due=$("#qaDue").value;
   if(!text||!id){ toast("Indiquez la tâche et l'idée concernée."); return; }
@@ -648,13 +758,16 @@ $("#main").addEventListener("click", e=>{
     if(a==="prev"||a==="next"){ const [y,m]=S.calMonth.split("-").map(Number); const d=new Date(y, m-1+(a==="next"?1:-1), 1, 12); S.calMonth=ymd(d).slice(0,7); S.calDay=null; }
     else if(a==="today"){ S.calMonth=today().slice(0,7); S.calDay=today(); }
     else if(a==="allDays"){ S.calDay=null; }
+    else if(a==="newMeet"){ openMeeting(null); return; }
     renderMain(); return; }
+  const mt=e.target.closest("[data-meet]"); if(mt && !e.target.closest("[data-open]")){ openMeeting(mt.dataset.meet); return; }
   const op=e.target.closest("[data-open]"); if(op){ S.tab=op.dataset.opentab||"fiche"; openDrawer(op.dataset.open); return; }
   if(e.target.closest("input,select,button,label,form")) return;
   const day=e.target.closest("[data-day]"); if(day){ S.calDay = S.calDay===day.dataset.day ? null : day.dataset.day; renderMain(); return; }
   const el=e.target.closest("[data-id]"); if(el) openDrawer(el.dataset.id);
 });
 $("#main").addEventListener("keydown", e=>{ if(e.key!=="Enter") return;
+  const mt=e.target.closest("li[data-meet]"); if(mt && e.target===mt){ openMeeting(mt.dataset.meet); return; }
   const day=e.target.closest("[data-day]"); if(day && e.target===day){ S.calDay=day.dataset.day; renderMain(); return; }
   const el=e.target.closest("[data-id]"); if(el) openDrawer(el.dataset.id); });
 $("#main").addEventListener("dragstart", e=>{ const c=e.target.closest(".card"); if(c){ e.dataTransfer.setData("text/plain", c.dataset.id); e.dataTransfer.effectAllowed="move"; }});
@@ -770,8 +883,14 @@ function toggleTask(id, k, done){
 }
 function renderTabCount(b){ const tp=document.querySelector('#drawer [data-tab=plan]'); if(tp) tp.textContent=`Plan (${b.tasks.filter(t=>t.done).length}/${b.tasks.length})`; }
 function renderJournal(i,b,body){
-  body.innerHTML = `<form class="addrow" id="addJ" style="margin-top:0"><input id="newJ" placeholder="Décision, rendez-vous, retour client…" aria-label="Nouvelle entrée de journal"><button class="btn" type="submit">Noter</button></form>
+  const ms=S.meetings.filter(m=>m.ideaId===i.id), td=today();
+  const mList=ms.length?`<ul class="meets">${ms.map(m=>`<li data-meet="${esc(m.id)}" tabindex="0"><span class="when">${esc(frDate(m.date,{day:"numeric",month:"short",year:m.date.slice(0,4)!==td.slice(0,4)?"numeric":undefined}))}</span>
+      <span><b>${esc(m.title)}</b> <span class="hint">${esc(meetWhen(m))}${m.date<td?" · passée":""}</span></span>${m.location||m.participants?`<span class="sub">${esc([m.location,m.participants].filter(Boolean).join(" · "))}</span>`:""}</li>`).join("")}</ul>`:"";
+  body.innerHTML = `<div class="cal-head" style="margin-bottom:6px"><h2 style="font-size:14px">Réunions et rencontres</h2><button class="btn sm" type="button" id="jMeet">+ Réunion</button></div>${mList||`<p class="hint" style="margin:0 0 14px">Aucune réunion liée à cette idée.</p>`}
+    <form class="addrow" id="addJ" style="margin-top:0"><input id="newJ" placeholder="Décision, rendez-vous, retour client…" aria-label="Nouvelle entrée de journal"><button class="btn" type="submit">Noter</button></form>
     <ul class="journal">${[...b.journal].reverse().map(j=>`<li><time>${esc(j.date||"—")}</time>${esc(clean(j.text))}</li>`).join("") || `<li class="hint">Le journal est vide. Les changements d'étape et les tâches terminées s'y inscrivent automatiquement.</li>`}</ul>`;
+  $("#jMeet").onclick=()=>openMeeting(null,{ideaId:i.id});
+  body.querySelectorAll("[data-meet]").forEach(el=>{ el.onclick=()=>openMeeting(el.dataset.meet); el.onkeydown=e=>{ if(e.key==="Enter") openMeeting(el.dataset.meet); }; });
   $("#addJ").onsubmit=e=>{ e.preventDefault(); const v=$("#newJ").value.trim(); if(!v) return; b.journal.push({date:today(), text:v}); bodyChanged(i.id,600); renderJournal(i,b,body); };
 }
 
@@ -791,7 +910,7 @@ function ideaContext(id){
   const fiche={réf:i.ref,titre:i.title,étape:i.stage,type:i.type,priorité:i.priority,porteur:i.owner,tags:i.tags,pitch:i.pitch,problème:i.problem,cible:i.target,
     proposition_de_valeur:i.value,modèle_économique:i.business,prochaine_étape:i.nextStep,échéance:i.due,valeur:i.valeur,effort:i.effort,confiance:i.confiance};
   const others=[...S.ideas.values()].filter(x=>x.id!==id).map(x=>`- ${x.ref} « ${x.title} » [${x.stage}]${x.pitch?" — "+trunc(x.pitch,110):""}`).join("\n");
-  return `Date du jour : ${today()}.\n\nFICHE OUVERTE :\n${JSON.stringify(fiche,null,1)}\n\nNOTES :\n${trunc(b.notes,6000)||"(vides)"}\n\nPLAN D'ACTION (index. [x] fait, date prévue éventuelle) :\n${b.tasks.map((t,k)=>`${k}. [${t.done?"x":" "}] ${clean(t.text)}${t.due?` (prévu le ${t.due})`:""}`).join("\n")||"(vide)"}\n\nJOURNAL RÉCENT :\n${b.journal.slice(-10).map(j=>`- ${j.date} ${clean(j.text)}`).join("\n")||"(vide)"}\n\nAUTRES IDÉES DU PORTEFEUILLE :\n${others||"(aucune)"}`;
+  return `Date du jour : ${today()}.\n\nFICHE OUVERTE :\n${JSON.stringify(fiche,null,1)}\n\nNOTES :\n${trunc(b.notes,6000)||"(vides)"}\n\nPLAN D'ACTION (index. [x] fait, date prévue éventuelle) :\n${b.tasks.map((t,k)=>`${k}. [${t.done?"x":" "}] ${clean(t.text)}${t.due?` (prévu le ${t.due})`:""}`).join("\n")||"(vide)"}\n\nRÉUNIONS ET RENCONTRES LIÉES :\n${S.meetings.filter(m=>m.ideaId===id).map(m=>`- ${m.date} ${meetWhen(m)} · ${m.kind} · ${m.title}${m.participants?" (avec "+m.participants+")":""}${m.notes?" — "+trunc(m.notes,200):""}`).join("\n")||"(aucune)"}\n\nJOURNAL RÉCENT :\n${b.journal.slice(-10).map(j=>`- ${j.date} ${clean(j.text)}`).join("\n")||"(vide)"}\n\nAUTRES IDÉES DU PORTEFEUILLE :\n${others||"(aucune)"}`;
 }
 function snapshot(id){ const i=S.ideas.get(id), b=S.bodies.get(id); const props={}; for(const k of EDITABLE) props[k]=structuredClone(i[k]);
   return {props, notes:b?b.notes:"", tasks:b?structuredClone(b.tasks):[], journal:b?structuredClone(b.journal):[]}; }
@@ -843,6 +962,14 @@ function aiTools(id){
      execute:async(inp)=>{ const bb=await loadBody(id); const m=String(inp.markdown||"").trim(); if(!m) throw new Error("Contenu vide.");
        aiStatus("Ajout aux notes…"); aiTouched=true; bb.notes=(bb.notes?bb.notes+"\n\n":"")+m.slice(0,20000);
        bb.journal.push({date:today(),text:"Assistant : ajout aux notes"}); bodyChanged(id,600); return "ok"; }},
+    {name:"plan_meeting", description:"Ajoute au calendrier une réunion ou rencontre liée à cette idée (date AAAA-MM-JJ, heures HH:MM facultatives).",
+     inputSchema:{type:"object",properties:{title:{type:"string"},date:{type:"string"},start:{type:"string"},end:{type:"string"},kind:{type:"string",description:MKINDS.join(", ")},location:{type:"string"},participants:{type:"string"},notes:{type:"string"}},required:["title","date"]},
+     execute:async(inp)=>{ if(!/^\d{4}-\d{2}-\d{2}$/.test(String(inp.date||""))) throw new Error("Date au format AAAA-MM-JJ attendue.");
+       aiStatus("Ajout d'une réunion au calendrier…"); aiTouched=true;
+       const m=await db_("save_meeting",{title:String(inp.title||"").slice(0,200), date:inp.date, start:inp.start||"", end:inp.end||"", kind:inp.kind||"Réunion",
+         location:inp.location||"", participants:inp.participants||"", notes:inp.notes||"", idea_id:id});
+       S.meetings.push(m); await addJournal(id, `Réunion planifiée le ${m.date}${m.start?" à "+m.start:""} : ${m.title}`); renderSoon();
+       return `Réunion enregistrée : ${m.date} ${meetWhen(m)} — ${m.title}`; }},
     {name:"add_journal_entry", description:"Inscrit une décision ou un fait marquant daté du jour dans le journal de la fiche.",
      inputSchema:{type:"object",properties:{text:{type:"string"}},required:["text"]},
      execute:async(inp)=>{ const t=String(inp.text||"").trim(); if(!t) throw new Error("Texte vide."); aiTouched=true; await addJournal(id,t.slice(0,500)); return "ok"; }},

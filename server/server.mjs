@@ -21,6 +21,7 @@ const DATABASE_URL = process.env.DATABASE_URL || `postgresql://saphyra:${encodeU
 const RO_DATABASE_URL = process.env.RO_DATABASE_URL || `postgresql://saphyra_ro:${encodeURIComponent(RO_PW)}@${DB_HOST}:5432/saphyra`;
 
 pg.types.setTypeParser(1082, v => v); // DATE -> "AAAA-MM-JJ"
+pg.types.setTypeParser(1083, v => v.slice(0, 5)); // TIME -> "HH:MM"
 const pool = new pg.Pool({ connectionString: DATABASE_URL, max: 5 });
 const ro = new pg.Pool({ connectionString: RO_DATABASE_URL, max: 2 });
 
@@ -76,6 +77,21 @@ CREATE TABLE IF NOT EXISTS reviews (
   content    text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS meetings (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  date         date NOT NULL,
+  start_time   time,
+  end_time     time,
+  title        text NOT NULL CHECK (length(trim(title)) > 0),
+  kind         text NOT NULL DEFAULT 'Réunion',
+  location     text NOT NULL DEFAULT '',
+  participants text NOT NULL DEFAULT '',
+  notes        text NOT NULL DEFAULT '',
+  idea_id      uuid REFERENCES ideas(id) ON DELETE SET NULL,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS meetings_date_idx ON meetings(date);
 CREATE INDEX IF NOT EXISTS ideas_stage_idx ON ideas(stage);
 CREATE INDEX IF NOT EXISTS tasks_due_idx ON tasks(due) WHERE NOT done;
 CREATE INDEX IF NOT EXISTS ideas_search_idx ON ideas USING gin ((title || ' ' || pitch || ' ' || problem || ' ' || body_md) gin_trgm_ops);
@@ -83,6 +99,8 @@ CREATE OR REPLACE FUNCTION touch_updated_at() RETURNS trigger LANGUAGE plpgsql A
 BEGIN NEW.updated_at := now(); RETURN NEW; END $$;
 DROP TRIGGER IF EXISTS ideas_touch ON ideas;
 CREATE TRIGGER ideas_touch BEFORE UPDATE ON ideas FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+DROP TRIGGER IF EXISTS meetings_touch ON meetings;
+CREATE TRIGGER meetings_touch BEFORE UPDATE ON meetings FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 `;
 
 async function migrate() {
@@ -232,6 +250,10 @@ async function importIdeas(items) {
   });
 }
 
+const meetingOut = r => ({ id: r.id, date: r.date, start: r.start_time || "", end: r.end_time || "", title: r.title, kind: r.kind, location: r.location,
+  participants: r.participants, notes: r.notes, ideaId: r.idea_id || "", ideaRef: r.idea_ref || "", ideaTitle: r.idea_title || "", updated: r.updated_at.toISOString() });
+const MEETING_SQL = "SELECT m.*, 'IDEE-'||i.ref AS idea_ref, i.title AS idea_title FROM meetings m LEFT JOIN ideas i ON i.id=m.idea_id";
+
 /* ---------------- Outils MCP ---------------- */
 const ideaProps = {
   title: { type: "string" }, stage: { type: "string", enum: STAGES }, type: { type: "string" }, priority: { type: "string", enum: PRIOS },
@@ -311,10 +333,45 @@ const TOOLS = [
   { name: "list_reviews", description: "Liste les revues du portefeuille, les plus récentes d'abord.",
     inputSchema: { type: "object", properties: { limit: { type: "integer" } } }, annotations: { readOnlyHint: true },
     run: async a => { const { rows } = await pool.query("SELECT * FROM reviews ORDER BY created_at DESC LIMIT $1", [Math.min(Number(a.limit) || 10, 100)]); return { reviews: rows }; } },
+  { name: "list_meetings", description: "Liste les réunions et rencontres du calendrier entre from et to (AAAA-MM-JJ, facultatifs), triées par date et heure.",
+    inputSchema: { type: "object", properties: { from: { type: "string" }, to: { type: "string" }, idea_id: { type: "string" } } }, annotations: { readOnlyHint: true },
+    run: async a => { const w = [], p = [];
+      if (isoDate(a.from)) { p.push(a.from); w.push(`m.date >= $${p.length}`); }
+      if (isoDate(a.to)) { p.push(a.to); w.push(`m.date <= $${p.length}`); }
+      if (a.idea_id) { p.push(String(a.idea_id)); w.push(`m.idea_id::text = $${p.length}`); }
+      const { rows } = await pool.query(`${MEETING_SQL} ${w.length ? "WHERE " + w.join(" AND ") : ""} ORDER BY m.date, m.start_time NULLS FIRST`, p);
+      return { meetings: rows.map(meetingOut) }; } },
+  { name: "save_meeting", description: "Crée une réunion ou rencontre (sans id) ou modifie celle qui porte cet id (seuls les champs fournis changent). Heures HH:MM. idea_id = fiche liée (uuid ou IDEE-n), vide pour aucune.",
+    inputSchema: { type: "object", properties: { id: { type: "string" }, date: { type: "string" }, start: { type: "string" }, end: { type: "string" }, title: { type: "string" },
+      kind: { type: "string", description: "Réunion, Rendez-vous client, Appel, Atelier, Événement…" }, location: { type: "string" }, participants: { type: "string" },
+      notes: { type: "string" }, idea_id: { type: ["string", "null"] } } },
+    run: async a => {
+      const v = {};
+      if (a.date !== undefined) { if (!isoDate(a.date)) throw new Error("date AAAA-MM-JJ attendue"); v.date = a.date; }
+      for (const [k, col] of [["start", "start_time"], ["end", "end_time"]]) if (a[k] !== undefined) {
+        if (a[k] && !/^\d{1,2}:\d{2}$/.test(a[k])) throw new Error(k + " : heure HH:MM attendue"); v[col] = a[k] || null; }
+      if (a.title !== undefined) { if (!String(a.title).trim()) throw new Error("title obligatoire"); v.title = String(a.title).trim(); }
+      for (const k of ["kind", "location", "participants", "notes"]) if (a[k] !== undefined) v[k] = String(a[k] ?? "");
+      if (a.idea_id !== undefined) v.idea_id = a.idea_id ? (await getOne(pool, a.idea_id, false)).id : null;
+      const cols = Object.keys(v), vals = Object.values(v); let id = a.id;
+      if (!id) {
+        if (!v.date || !v.title) throw new Error("date et title obligatoires");
+        id = (await pool.query(`INSERT INTO meetings(${cols.join(",")}) VALUES(${cols.map((_, i) => "$" + (i + 1)).join(",")}) RETURNING id`, vals)).rows[0].id;
+      } else if (cols.length) {
+        const r = await pool.query(`UPDATE meetings SET ${cols.map((c, i) => `${c}=$${i + 2}`).join(",")} WHERE id::text=$1`, [String(id), ...vals]);
+        if (!r.rowCount) throw new Error("Réunion introuvable : " + id);
+      }
+      const { rows } = await pool.query(`${MEETING_SQL} WHERE m.id::text=$1`, [String(id)]);
+      if (!rows[0]) throw new Error("Réunion introuvable : " + id);
+      return meetingOut(rows[0]); } },
+  { name: "delete_meeting", description: "Supprime une réunion du calendrier.",
+    inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] }, annotations: { destructiveHint: true },
+    run: async a => { const r = await pool.query("DELETE FROM meetings WHERE id::text=$1", [String(a.id)]);
+      if (!r.rowCount) throw new Error("Réunion introuvable : " + a.id); return { deleted: a.id }; } },
   { name: "import_ideas", description: "Importe des fiches exportées de Notion en conservant référence (ref) et dates. Les fiches déjà importées (même notion_url) sont ignorées.",
     inputSchema: { type: "object", properties: { items: { type: "array", items: { type: "object" } } }, required: ["items"] },
     run: async a => importIdeas(a.items) },
-  { name: "query_sql", description: "Exécute une requête SQL en LECTURE SEULE (PostgreSQL) sur la base : tables ideas, tasks, journal, reviews. 500 lignes max, 5 s max.",
+  { name: "query_sql", description: "Exécute une requête SQL en LECTURE SEULE (PostgreSQL) sur la base : tables ideas, tasks, journal, meetings, reviews. 500 lignes max, 5 s max.",
     inputSchema: { type: "object", properties: { sql: { type: "string" } }, required: ["sql"] }, annotations: { readOnlyHint: true },
     run: async a => { const r = await ro.query(String(a.sql)); const rows = (r.rows || []).slice(0, 500); return { rowCount: r.rowCount, truncated: (r.rows || []).length > 500, rows }; } },
 ];

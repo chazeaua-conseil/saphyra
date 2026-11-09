@@ -30,12 +30,13 @@ Atelier (artefact) ──mcp──► connecteur « Saphyra DB » ──HTTPS─
 - `body_md` : le corps de la fiche en markdown, au même format que dans Notion (`## Notes`, `## Plan d'action`, `## Journal`).
   C'est la source de vérité du corps.
 - `tasks` et `journal` : recalculées depuis `body_md` à chaque écriture, pour pouvoir les interroger en SQL (échéances, tâches ouvertes…).
+- `meetings` : réunions et rencontres du calendrier (date, heures, type, lieu, participants, notes, fiche liée facultative).
 - `reviews` : revues du portefeuille enregistrées depuis l'Atelier.
 
 ## Outils MCP
 
 `list_ideas`, `get_idea`, `create_idea`, `update_idea`, `add_journal_entry`, `set_task`, `delete_idea`, `search_ideas`,
-`list_tasks`, `save_review`, `list_reviews`, `import_ideas`, `query_sql` (lecture seule : rôle `saphyra_ro`, 5 s et 500 lignes au plus).
+`list_tasks`, `list_meetings`, `save_meeting`, `delete_meeting`, `save_review`, `list_reviews`, `import_ideas`, `query_sql` (lecture seule : rôle `saphyra_ro`, 5 s et 500 lignes au plus).
 
 ## Brancher l'Atelier
 
@@ -63,3 +64,7 @@ Atelier (artefact) ──mcp──► connecteur « Saphyra DB » ──HTTPS─
 - **Sauvegardes** : `pg_dump` quotidien dans le volume `saphyra_backups`, 14 jours de rétention.
   Restauration : `docker exec -i saphyra-db-1 pg_restore -U saphyra -d saphyra --clean < saphyra-AAAA-MM-JJ.dump`.
 - **SQL direct** (depuis le VPS) : `docker exec -it saphyra-db-1 psql -U saphyra saphyra`.
+
+> Taille du code : l'API Hostinger limite chaque champ à 8 192 caractères. Le code compressé occupe déjà environ 13,1 k
+> sur les 13,3 k disponibles (compose + variables). Pour une prochaine évolution, minifier `server.mjs` avant le rendu
+> ou passer à un dépôt public pour le compose.
