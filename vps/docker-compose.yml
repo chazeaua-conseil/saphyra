@@ -1,0 +1,121 @@
+# Atelier SAPHYRA : PostgreSQL + serveur MCP, derrière le Traefik du projet n8n.
+# Déployé via le gestionnaire Docker Hostinger (projet « saphyra »).
+#
+# Secrets : générés une seule fois sur le VPS par le service « init » dans le volume saphyra_secrets
+#   (pg_password, ro_password, mcp_token). Ils ne transitent ni par Git ni par l'API Hostinger.
+# Code : server/server.mjs compressé (gzip + base64) et coupé en deux morceaux APP_B64_1 / APP_B64_2,
+#   car l'API Hostinger limite le compose et les variables à 8 192 caractères chacun.
+#   scripts/render-compose.sh produit le compose et les variables prêts à déployer (aucun secret dedans).
+services:
+  init:
+    image: alpine:3.20
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - >-
+        for f in pg_password ro_password mcp_token; do
+        [ -s /secrets/$$f ] || head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' > /secrets/$$f;
+        done; chmod 644 /secrets/*; echo secrets-ok
+    volumes:
+      - saphyra_secrets:/secrets
+
+  db:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_DB: saphyra
+      POSTGRES_USER: saphyra
+      POSTGRES_PASSWORD_FILE: /secrets/pg_password
+    volumes:
+      - saphyra_db:/var/lib/postgresql/data
+      - saphyra_secrets:/secrets:ro
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U saphyra -d saphyra"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    image: node:22-alpine
+    restart: always
+    working_dir: /app
+    environment:
+      PORT: 3000
+      BASE_PATH: /saphyra
+      DB_HOST: db
+      SECRETS_DIR: /secrets
+      PUBLIC_URL: https://srv1429117.hstgr.cloud
+      APP_B64_1: ${APP_B64_1}
+      APP_B64_2: ${APP_B64_2}
+    command:
+      - sh
+      - -c
+      - >-
+        echo "$$APP_B64_1$$APP_B64_2" | base64 -d | gunzip > /app/server.mjs &&
+        (test -d /app/node_modules/pg || npm install --no-save --no-audit --no-fund pg@8) &&
+        exec node /app/server.mjs
+    volumes:
+      - saphyra_node_modules:/app/node_modules
+      - saphyra_secrets:/secrets:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - n8n_default
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/saphyra/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=n8n_default
+      - traefik.http.routers.saphyra.rule=Host(`srv1429117.hstgr.cloud`) && PathPrefix(`/saphyra`)
+      - traefik.http.routers.saphyra.entrypoints=web,websecure
+      - traefik.http.routers.saphyra.tls=true
+      - traefik.http.routers.saphyra.tls.certresolver=mytlschallenge
+      - traefik.http.services.saphyra.loadbalancer.server.port=3000
+
+  # Sauvegarde quotidienne (pg_dump) dans le volume saphyra_backups, conservation 14 jours.
+  backup:
+    image: postgres:16-alpine
+    restart: always
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        export PGPASSWORD="$$(cat /secrets/pg_password)";
+        sleep 120;
+        while true; do
+        pg_dump -h db -U saphyra -Fc saphyra > /backups/saphyra-$$(date +%F).dump &&
+        find /backups -name 'saphyra-*.dump' -mtime +14 -delete;
+        sleep 86400;
+        done
+    volumes:
+      - saphyra_backups:/backups
+      - saphyra_secrets:/secrets:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - internal
+
+networks:
+  n8n_default:
+    external: true
+  internal:
+    driver: bridge
+
+volumes:
+  saphyra_db:
+  saphyra_node_modules:
+  saphyra_backups:
+  saphyra_secrets:
