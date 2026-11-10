@@ -86,7 +86,8 @@ def develop(p, cfg, corrections=None):
         first = ("La maquette existe déjà dans le dossier. Le panel métier demande ces corrections :\n- " +
                  "\n- ".join(corrections) + "\nCommence par list_files, corrige, puis finish.")
     else:
-        first = "Construis la maquette. Écris plusieurs fichiers par tour pour aller vite, puis appelle finish."
+        first = ("Construis la maquette. Écris 2 à 4 fichiers par tour, pas plus : au-delà ta réponse est coupée. "
+                 "Puis appelle finish.")
     messages = [{"role": "user", "content": [{"type": "text", "text": first}]}]
     report, shots, loops = {}, [], 0
     for _ in range(MAX_TURNS):

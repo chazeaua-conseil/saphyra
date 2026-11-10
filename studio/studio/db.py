@@ -73,6 +73,8 @@ CREATE TABLE IF NOT EXISTS studio_usage (
 );
 CREATE TABLE IF NOT EXISTS studio_state (k text PRIMARY KEY, v text);
 ALTER TABLE studio_projects ADD COLUMN IF NOT EXISTS blocked_stage text;
+-- Crédit de budget : les appels perdus sur une panne technique ne comptent pas dans le plafond du projet.
+ALTER TABLE studio_projects ADD COLUMN IF NOT EXISTS budget_extra numeric(8,4) NOT NULL DEFAULT 0;
 -- Une erreur technique n'est pas un jugement : les idées tuées ainsi (avant le 10/11/2026) repartent au panel.
 UPDATE studio_projects SET stage = 'nouvelle', kill_reason = NULL
  WHERE stage = 'tuee' AND kill_reason LIKE '%Erreur technique répétée%';
@@ -97,6 +99,15 @@ def conn():
 def migrate():
     with conn() as c:
         c.execute(SCHEMA)
+    if state("credit_20261110") is None:
+        # Pannes du 10/11/2026 (JSON, architecte coupé) : on rembourse ce qu'elles ont coûté aux projets touchés,
+        # et un projet tué entre-temps par le plafond du projet repart à la maquette.
+        q("""UPDATE studio_projects SET budget_extra = cost_usd
+              WHERE id IN (SELECT DISTINCT project_id FROM studio_events WHERE kind = 'erreur' AND project_id IS NOT NULL)""")
+        q("""UPDATE studio_projects SET kill_reason = NULL, budget_extra = cost_usd,
+                  stage = CASE WHEN (test->>'ok')::boolean THEN 'revue' ELSE 'dev' END
+              WHERE stage = 'tuee' AND kill_reason LIKE '[budget]%%projet%%'""")
+        state("credit_20261110", "fait")
 
 
 def q(sql, *args):
@@ -142,8 +153,10 @@ def next_project():
 
 
 def relaunch(pid):
-    q("""UPDATE studio_projects SET stage = coalesce(blocked_stage, 'nouvelle'), blocked_stage = NULL, kill_reason = NULL,
-         updated_at = now() WHERE id = %s AND stage = 'bloquee'""", pid)
+    # Relancer un projet bloqué par son plafond lui accorde 2 $ de plus.
+    q("""UPDATE studio_projects SET stage = coalesce(blocked_stage, 'nouvelle'), blocked_stage = NULL,
+         budget_extra = budget_extra + CASE WHEN kill_reason LIKE '%%plafond du projet%%' THEN 2 ELSE 0 END,
+         kill_reason = NULL, updated_at = now() WHERE id = %s AND stage = 'bloquee'""", pid)
     event(pid, "andre", "info", "Relancé depuis le tableau de bord.")
 
 
@@ -152,6 +165,11 @@ def spent_today():
     r = q1("SELECT coalesce(sum(cost_usd),0) s FROM studio_usage WHERE ts >= date_trunc('day', now() AT TIME ZONE %s) AT TIME ZONE %s",
            str(config.TZ), str(config.TZ))
     return float(r["s"])
+
+
+def credit(pid, amount):
+    if pid and amount > 0:
+        q("UPDATE studio_projects SET budget_extra = budget_extra + %s WHERE id=%s", amount, pid)
 
 
 def record_usage(pid, agent, model, tin, tout, searches, cost):

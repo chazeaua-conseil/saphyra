@@ -58,16 +58,19 @@ def tick():
         return "rien à faire"
     step = agents.STEPS[p["stage"]]
     log.info("%s → %s", p["title"], step.__name__)
+    cost_before = float(db.project(p["id"])["cost_usd"])
     try:
         step(p, cfg)
         fails.pop(p["id"], None)
     except llm.BudgetExceeded as e:
         if "projet" in str(e):
-            agents.kill(p, "budget", str(e))
+            agents.block(p, "budget", str(e))
         else:
             db.event(p["id"], "budget", "budget", str(e))
         return "budget"
     except Exception as e:
+        # Un essai raté pour raison technique ne doit pas manger le budget du projet.
+        db.credit(p["id"], float(db.project(p["id"])["cost_usd"]) - cost_before)
         fails[p["id"]] = fails.get(p["id"], 0) + 1
         db.event(p["id"], step.__name__, "erreur", f"Essai {fails[p['id']]} : {e}")
         log.error(traceback.format_exc())

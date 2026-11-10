@@ -41,8 +41,8 @@ def check_budget(cfg, pid):
         raise BudgetExceeded("plafond du jour atteint")
     if pid:
         p = db.project(pid)
-        if p and float(p["cost_usd"]) >= cfg["project_budget_usd"]:
-            raise BudgetExceeded(f"plafond du projet atteint ({cfg['project_budget_usd']} $)")
+        if p and float(p["cost_usd"]) >= cfg["project_budget_usd"] + float(p.get("budget_extra") or 0):
+            raise BudgetExceeded(f"plafond du projet atteint ({cfg['project_budget_usd']} $, hors pannes techniques)")
 
 
 def call(agent, system, messages, *, pid=None, tools=None, light=False, max_tokens=8000, cfg=None):

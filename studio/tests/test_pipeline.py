@@ -140,6 +140,15 @@ def run():
     assert b["stage"] == "bloquee" and b["blocked_stage"] == "architecture", b
     db.relaunch(r["id"])
     assert db.project(r["id"])["stage"] == "architecture"
+    # Budget : un essai raté est remboursé au projet ; un dépassement bloque (relançable avec 2 $ de plus).
+    r = db.project(r["id"])
+    assert float(r["budget_extra"]) >= float(r["cost_usd"]), (r["budget_extra"], r["cost_usd"])
+    db.q("UPDATE studio_projects SET cost_usd = 10, stage='architecture' WHERE id=%s", r["id"])
+    try:
+        llm.check_budget(config.load(), r["id"])
+        raise AssertionError("plafond du projet non appliqué")
+    except llm.BudgetExceeded:
+        pass
     print("coût simulé du jour :", db.spent_today(), "$")
     print("OK — pipeline complet validé")
 
