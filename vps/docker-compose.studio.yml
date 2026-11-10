@@ -28,10 +28,12 @@ services:
       - >-
         set -e;
         if [ ! -f /opt/.installed ]; then
-        pip install -q --no-cache-dir "anthropic>=0.70" "psycopg[binary]>=3.2" "playwright>=1.48" "markdown>=3.6" &&
-        python -m playwright install --with-deps chromium && touch /opt/.installed; fi;
+        apt-get update -qq && apt-get install -y -qq --no-install-recommends libatomic1 >/dev/null || exit 1;
+        pip install -q --no-cache-dir --root-user-action=ignore "anthropic>=0.70" "psycopg[binary]>=3.2" "playwright>=1.48" "markdown>=3.6" || exit 1;
+        python -m playwright install --with-deps chromium || exit 1;
+        touch /opt/.installed; fi;
         rm -rf /src/* &&
-        python -c "import urllib.request,tarfile,io,os;r=os.environ['STUDIO_REPO'];b=os.environ['STUDIO_BRANCH'];tarfile.open(fileobj=io.BytesIO(urllib.request.urlopen(f'https://codeload.github.com/{r}/tar.gz/refs/heads/{b}').read())).extractall('/src')" &&
+        python -c "import urllib.request,tarfile,io,os;r=os.environ['STUDIO_REPO'];b=os.environ['STUDIO_BRANCH'];tarfile.open(fileobj=io.BytesIO(urllib.request.urlopen(f'https://codeload.github.com/{r}/tar.gz/refs/heads/{b}').read())).extractall('/src', filter='data')" &&
         cd /src/*/studio && exec python -m studio.main
     volumes:
       - studio_data:/data
