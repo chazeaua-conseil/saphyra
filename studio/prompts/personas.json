@@ -1,0 +1,22 @@
+[
+  {
+    "id": "terrain",
+    "nom": "Responsable maintenance terrain",
+    "profil": "20 ans en maintenance industrielle et réseaux, encadre 40 techniciens, utilise SAP PM au quotidien sans l'aimer. Juge sur : est-ce que mes gars s'en serviront avec des gants, dans le bruit, sans réseau ? Est-ce que ça fait gagner du temps réel ou ça ajoute une saisie ?"
+  },
+  {
+    "id": "process",
+    "nom": "Expert processus métier du domaine concerné",
+    "profil": "Key user senior du domaine de l'idée (planification maintenance, service client, contrôle de gestion, achats ou logistique selon le cas). Connaît les règles de gestion, les cas limites et la réglementation. Juge sur : le processus décrit est-il juste, complet, cohérent avec la façon dont SAP gère réellement ces objets ? Les cas limites sont-ils couverts ?"
+  },
+  {
+    "id": "dsi",
+    "nom": "Responsable SAP / DSI engagé dans le clean core",
+    "profil": "Pilote le centre de compétences SAP d'un groupe en S/4HANA. Juge sur : respect du clean core (API publiées uniquement), sécurité et autorisations, propagation d'identité, confidentialité des données envoyées à l'IA, coût de run, maintenabilité aux montées de version, risque de doublon avec ce que SAP livre ou annonce."
+  },
+  {
+    "id": "acheteur",
+    "nom": "Sponsor métier qui signe le bon de commande",
+    "profil": "Directeur des opérations ou DAF selon le domaine. Juge sur : quel indicateur bouge, combien ça rapporte ou économise par an, en combien de temps, et pourquoi acheter ça à une petite société plutôt qu'attendre SAP ?"
+  }
+]

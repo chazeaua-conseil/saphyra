@@ -1,0 +1,68 @@
+# Studio SAPHYRA : équipe d'agents qui produit des maquettes Fiori + IA, en continu.
+# Projet Docker « saphyra-studio », à côté du projet « saphyra » (base de l'Atelier) et derrière le Traefik de n8n.
+#
+# - Le code est téléchargé depuis GitHub (dépôt public chazeaua-conseil/saphyra, dossier studio/) à chaque démarrage :
+#   pour mettre à jour, pousser sur main puis redémarrer le projet.
+# - Base : PostgreSQL du projet « saphyra » (réseau saphyra_internal), mot de passe lu dans le volume de secrets existant.
+# - Clé API, SMTP, budget : saisis dans la page Réglages du tableau de bord, stockés dans le volume studio_data. Rien dans Git.
+# - Tableau de bord et maquettes : https://srv1429117.hstgr.cloud/saphyra/studio/<jeton>/ (jeton dans les journaux du conteneur).
+services:
+  studio:
+    image: python:3.12-slim-bookworm
+    restart: always
+    mem_limit: 1400m
+    shm_size: 512m
+    environment:
+      TZ: Europe/Paris
+      PUBLIC_URL: https://srv1429117.hstgr.cloud
+      DB_HOST: db
+      SECRETS_DIR: /secrets
+      STUDIO_DATA: /data
+      STUDIO_REPO: chazeaua-conseil/saphyra
+      STUDIO_BRANCH: studio
+      PYTHONUNBUFFERED: "1"
+    working_dir: /src
+    command:
+      - sh
+      - -c
+      - >-
+        set -e;
+        if [ ! -f /opt/.installed ]; then
+        pip install -q --no-cache-dir "anthropic>=0.70" "psycopg[binary]>=3.2" "playwright>=1.48" "markdown>=3.6" &&
+        python -m playwright install --with-deps chromium && touch /opt/.installed; fi;
+        rm -rf /src/* &&
+        python -c "import urllib.request,tarfile,io,os;r=os.environ['STUDIO_REPO'];b=os.environ['STUDIO_BRANCH'];tarfile.open(fileobj=io.BytesIO(urllib.request.urlopen(f'https://codeload.github.com/{r}/tar.gz/refs/heads/{b}').read())).extractall('/src')" &&
+        cd /src/*/studio && exec python -m studio.main
+    volumes:
+      - studio_data:/data
+      - saphyra_secrets:/secrets:ro
+    networks:
+      - n8n_default
+      - saphyra_internal
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8080/saphyra/studio/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 600s
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=n8n_default
+      - traefik.http.routers.saphyra-studio.rule=Host(`srv1429117.hstgr.cloud`) && PathPrefix(`/saphyra/studio`)
+      - traefik.http.routers.saphyra-studio.entrypoints=web,websecure
+      - traefik.http.routers.saphyra-studio.tls=true
+      - traefik.http.routers.saphyra-studio.tls.certresolver=mytlschallenge
+      - traefik.http.routers.saphyra-studio.priority=100
+      - traefik.http.services.saphyra-studio.loadbalancer.server.port=8080
+
+networks:
+  n8n_default:
+    external: true
+  saphyra_internal:
+    external: true
+
+volumes:
+  studio_data:
+  saphyra_secrets:
+    external: true
+    name: saphyra_saphyra_secrets

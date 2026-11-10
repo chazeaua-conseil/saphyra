@@ -68,3 +68,8 @@ Atelier (artefact) ──mcp──► connecteur « Saphyra DB » ──HTTPS─
 > Taille du code : l'API Hostinger limite chaque champ à 8 192 caractères. Le code compressé occupe déjà environ 13,1 k
 > sur les 13,3 k disponibles (compose + variables). Pour une prochaine évolution, minifier `server.mjs` avant le rendu
 > ou passer à un dépôt public pour le compose.
+
+## Studio IA (branche `studio`)
+
+Équipe d'agents qui produit chaque nuit des maquettes Fiori + IA et les livre dans l'Atelier : voir [`studio/README.md`](studio/README.md).
+Déploiement : projet Docker `saphyra-studio` à partir de [`vps/docker-compose.studio.yml`](vps/docker-compose.studio.yml).

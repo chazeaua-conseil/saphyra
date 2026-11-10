@@ -1,0 +1,4 @@
+anthropic>=0.70
+psycopg[binary]>=3.2
+playwright>=1.48
+markdown>=3.6
