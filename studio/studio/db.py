@@ -76,6 +76,9 @@ ALTER TABLE studio_projects ADD COLUMN IF NOT EXISTS blocked_stage text;
 -- Une erreur technique n'est pas un jugement : les idées tuées ainsi (avant le 10/11/2026) repartent au panel.
 UPDATE studio_projects SET stage = 'nouvelle', kill_reason = NULL
  WHERE stage = 'tuee' AND kill_reason LIKE '%Erreur technique répétée%';
+-- Faux refus de l'architecte fabriqués par la réparation JSON à partir d'une réponse vide (10/11/2026).
+UPDATE studio_projects SET stage = 'architecture', kill_reason = NULL
+ WHERE stage = 'tuee' AND kill_reason LIKE '[architecte]%' AND kill_reason LIKE '%convertir%';
 """
 
 

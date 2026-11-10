@@ -51,6 +51,9 @@ def fake(agent, system, messages, tools):
         weak = "Idée faible" in json.dumps(messages, ensure_ascii=False)
         return txt({"note": 1 if weak else 4, "verdict": "stop" if weak else "go", "bloquant": "aucune valeur" if weak else "",
                     "conditions": ["montrer la liste des pièces"], "cas_limites": ["OT sans gamme"]})
+    if agent == "architecte" and messages[-1]["role"] == "user" and messages[-1]["content"] != llm.CONTINUE:
+        # bug du 10/11 après-midi : recherches puis analyse trop longue, coupée avant le JSON
+        return msg([TextBlock(type="text", text="J'ai vérifié API_MAINTENANCEORDER sur api.sap.com. Analyse détaillée…")], "max_tokens")
     if agent == "architecte":
         return txt({"verdict": "go", "archetype": "side-by-side BTP CAP/UI5", "api": [{"nom": "API_MAINTENANCEORDER", "verifiee": True}],
                     "ia": {"ou": "Generative AI Hub"}, "moment_ia": "contrôle de complétude", "ecrans": []})
@@ -116,7 +119,19 @@ def run():
         assert e.code == 404
     # Le rédacteur passe en dernier : après l'évaluateur commercial, une seule fois, pour l'idée validée.
     assert calls.count("redacteur") == 1 and calls.index("marche") < calls.index("redacteur"), calls
-    assert "panel-terrain-json" in calls, "la réparation JSON n'a pas été appelée"
+    # La relance « JSON seulement » a servi, et la réparation n'a jamais été appelée pour l'architecte.
+    assert "architecte-json" not in calls and calls.count("architecte") >= 2, calls
+    # Réponse vide et coupée : erreur technique, surtout pas un faux verdict.
+    def empty(agent, system, messages, tools):
+        return msg([TextBlock(type="text", text="")], "max_tokens")
+    llm.FAKE = empty
+    try:
+        llm.ask_json("architecte", "s", "consigne")
+        raise AssertionError("une réponse vide a produit un verdict")
+    except ValueError as e:
+        assert "vide" in str(e), e
+    llm.FAKE = fake
+    assert calls.count("panel-terrain") >= 2 and "panel-terrain-json" not in calls, "relance JSON non utilisée"
     # Erreur technique répétée : le projet est bloqué (pas tué), puis relancé à la même étape.
     r = db.q1("INSERT INTO studio_projects(slug, title, stage, brief) VALUES('panne','Panne','architecture','{\"titre\":\"Panne\"}') RETURNING id")
     for _ in range(3):

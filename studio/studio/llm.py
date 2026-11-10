@@ -84,40 +84,82 @@ def text_of(resp):
     return "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
 
 
-def ask_json(agent, system, user, *, pid=None, images=None, web=False, light=False, max_tokens=8000):
-    """Question → objet JSON. Le prompt doit demander un bloc ```json."""
+def _dump(content):
+    return [b.model_dump(exclude_none=True) if hasattr(b, "model_dump") else b for b in content]
+
+
+CONTINUE = ("Ta réponse a été coupée ou n'était pas au format demandé. Ne fais plus de recherche et n'écris plus d'analyse : "
+            "donne maintenant uniquement le bloc ```json final, avec des champs concis.")
+
+
+def ask_json(agent, system, user, *, pid=None, images=None, web=False, light=False, max_tokens=8000, searches=3):
+    """Question → objet JSON. Le prompt doit demander un bloc ```json.
+
+    Si la réponse est coupée ou mal formée : 1) on demande au même agent, dans la même conversation (il garde ses
+    recherches), de ne rendre que le JSON ; 2) à défaut, le modèle léger reformate le texte, mais seulement s'il y a
+    un vrai contenu, et il a l'interdiction d'inventer (sinon erreur technique, jamais un faux verdict)."""
     content = []
     for png in images or []:
         content.append({"type": "image", "source": {"type": "base64", "media_type": "image/png",
                                                     "data": base64.b64encode(png).decode()}})
     content.append({"type": "text", "text": user})
     cfg = config.load()
-    tools = [{"type": cfg["web_search_tool"], "name": "web_search", "max_uses": 5}] if web else None
+    tools = [{"type": cfg["web_search_tool"], "name": "web_search", "max_uses": searches}] if web else None
     msgs = [{"role": "user", "content": content}]
-    resp = call(agent, system, msgs, pid=pid, tools=tools, light=light, max_tokens=max_tokens, cfg=cfg)
-    # La recherche web peut s'arrêter en pause_turn : on relance pour finir.
-    for _ in range(3):
-        if getattr(resp, "stop_reason", "") != "pause_turn":
-            break
-        msgs = msgs + [{"role": "assistant", "content": resp.content}]
+
+    def run(msgs):
         resp = call(agent, system, msgs, pid=pid, tools=tools, light=light, max_tokens=max_tokens, cfg=cfg)
+        for _ in range(3):  # la recherche web peut s'arrêter en pause_turn : on relance pour finir
+            if getattr(resp, "stop_reason", "") != "pause_turn":
+                break
+            msgs = msgs + [{"role": "assistant", "content": _dump(resp.content)}]
+            resp = call(agent, system, msgs, pid=pid, tools=tools, light=light, max_tokens=max_tokens, cfg=cfg)
+        return resp, msgs
+
+    resp, msgs = run(msgs)
     txt = text_of(resp)
-    try:
-        if getattr(resp, "stop_reason", "") == "max_tokens":
-            raise ValueError("réponse coupée (max_tokens)")
-        return parse_json(txt)
-    except ValueError as e:
-        # Réparation : le modèle léger remet la réponse au format JSON demandé (quelques centimes).
-        fmt = user[-3000:]
-        fix = call(agent + "-json", "Tu convertis des réponses en JSON strict. Tu ne réponds que par un bloc ```json.",
-                   [{"role": "user", "content": f"Format attendu (fin de la consigne d'origine) :\n{fmt}\n\n"
-                                                f"Réponse à convertir (peut être incomplète, complète les champs au mieux "
-                                                f"à partir de son contenu) :\n{txt[-12000:]}\n\nRéponds uniquement par le bloc ```json."}],
-                   pid=pid, light=True, max_tokens=max(4000, max_tokens // 2), cfg=cfg)
+    err = None
+    for attempt in range(2):
         try:
-            return parse_json(text_of(fix))
-        except ValueError:
-            raise ValueError(f"{e} ; réparation impossible")
+            if getattr(resp, "stop_reason", "") == "max_tokens":
+                raise ValueError("réponse coupée (max_tokens)")
+            return parse_json(txt)
+        except ValueError as e:
+            err = e
+            if attempt == 1:
+                break
+            try:  # 1) le même agent rend seulement son JSON
+                resp, msgs = run(msgs + [{"role": "assistant", "content": _dump(resp.content)},
+                                         {"role": "user", "content": CONTINUE}])
+                txt2 = text_of(resp)
+                txt = txt + "\n" + txt2 if txt2 else txt
+                if txt2:
+                    txt_try = txt2
+                    try:
+                        if getattr(resp, "stop_reason", "") != "max_tokens":
+                            return parse_json(txt_try)
+                    except ValueError:
+                        pass
+            except BudgetExceeded:
+                raise
+            except Exception as e2:  # historique refusé par l'API, etc.
+                err = ValueError(f"{err} ; relance impossible : {str(e2)[:200]}")
+    # 2) réparation par le modèle léger, seulement s'il y a de la matière
+    if len(txt.strip()) < 300:
+        raise ValueError(f"{err} ; réponse vide, aucune réparation possible")
+    fix = call(agent + "-json", "Tu convertis des réponses en JSON strict, sans rien inventer. Tu ne réponds que par un bloc ```json.",
+               [{"role": "user", "content": f"Format attendu (fin de la consigne d'origine) :\n{user[-3000:]}\n\n"
+                                            f"Réponse à convertir :\n{txt[-15000:]}\n\nRemplis les champs uniquement avec ce que dit "
+                                            f"la réponse. Si elle ne contient pas de quoi décider (note, verdict…), réponds exactement "
+                                            f"```json\n{{\"_illisible\": true}}\n``` . Réponds uniquement par le bloc ```json."}],
+               pid=pid, light=True, max_tokens=8000, cfg=cfg)
+    try:
+        out = parse_json(text_of(fix))
+    except ValueError:
+        raise ValueError(f"{err} ; réparation impossible")
+    if isinstance(out, dict) and out.get("_illisible"):
+        raise ValueError(f"{err} ; réponse sans contenu exploitable")
+    return out
 
 
 def parse_json(txt):

@@ -92,7 +92,7 @@ def panel(p, cfg):
 def architecte(p, cfg):
     conds = {k: {"conditions": v.get("conditions"), "cas_limites": v.get("cas_limites")} for k, v in p["panel"].items()}
     a = llm.ask_json("architecte", system(cfg), llm.prompt("architecte", brief=p["brief"], panel=conds),
-                     pid=p["id"], web=True, max_tokens=8000)
+                     pid=p["id"], web=True, max_tokens=16000)
     db.update(p["id"], archi=a)
     if a.get("verdict") == "stop":
         return kill(p, "architecte", a.get("raison_stop") or "Pas d'API publiée permettant un clean core.")
@@ -150,7 +150,7 @@ def dossier(p):
 
 
 def marche(p, cfg):
-    m = llm.ask_json("marche", system(cfg), llm.prompt("marche", dossier=dossier(p)), pid=p["id"], web=True, max_tokens=6000)
+    m = llm.ask_json("marche", system(cfg), llm.prompt("marche", dossier=dossier(p)), pid=p["id"], web=True, max_tokens=12000)
     s = m.get("scores", {})
     keys = ["valeur", "differenciation", "faisabilite", "confiance", "vendabilite"]
     score = round(mean(float(s.get(k) or 0) for k in keys), 2)
