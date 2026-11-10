@@ -18,11 +18,11 @@ from . import config
 
 # Étapes du pipeline, dans l'ordre. « tuee » et « livree » sont terminales.
 STAGES = ["nouvelle", "architecture", "dev", "revue", "marche", "doc", "prete"]
-TERMINAL = ["livree", "tuee"]
+TERMINAL = ["livree", "tuee", "bloquee"]
 LABELS = {
     "nouvelle": "Panel métier", "architecture": "Architecture",
     "dev": "Maquette", "revue": "Revue du POC", "doc": "Documentation",
-    "marche": "Vendabilité", "prete": "Prête", "livree": "Livrée", "tuee": "Cimetière",
+    "marche": "Vendabilité", "prete": "Prête", "livree": "Livrée", "tuee": "Cimetière", "bloquee": "Bloquée (technique)",
 }
 
 SCHEMA = """
@@ -72,6 +72,10 @@ CREATE TABLE IF NOT EXISTS studio_usage (
   cost_usd   numeric(8,4) NOT NULL
 );
 CREATE TABLE IF NOT EXISTS studio_state (k text PRIMARY KEY, v text);
+ALTER TABLE studio_projects ADD COLUMN IF NOT EXISTS blocked_stage text;
+-- Une erreur technique n'est pas un jugement : les idées tuées ainsi (avant le 10/11/2026) repartent au panel.
+UPDATE studio_projects SET stage = 'nouvelle', kill_reason = NULL
+ WHERE stage = 'tuee' AND kill_reason LIKE '%Erreur technique répétée%';
 """
 
 
@@ -132,6 +136,12 @@ def next_project():
     order = " ".join(f"WHEN '{s}' THEN {i}" for i, s in enumerate(STAGES))
     return q1(f"""SELECT * FROM studio_projects WHERE stage <> ALL(%s) AND stage <> 'prete'
                   ORDER BY CASE stage {order} END DESC, id LIMIT 1""", TERMINAL)
+
+
+def relaunch(pid):
+    q("""UPDATE studio_projects SET stage = coalesce(blocked_stage, 'nouvelle'), blocked_stage = NULL, kill_reason = NULL,
+         updated_at = now() WHERE id = %s AND stage = 'bloquee'""", pid)
+    event(pid, "andre", "info", "Relancé depuis le tableau de bord.")
 
 
 # ---------- Budget ----------

@@ -12,7 +12,8 @@ Architecture retenue :
 
 Porte 2 : la maquette tient-elle la promesse ? Regarde les captures comme si on te les montrait en rendez-vous. Vérifie que tes conditions de la porte 1 sont remplies, que le moment IA est crédible et utile, que le processus métier est juste.
 
-Réponds par un bloc ```json :
+Réponds UNIQUEMENT par un bloc ```json, sans aucun texte avant ni après : ton raisonnement va dans les champs, en phrases courtes.
+Format :
 {
  "note": 1-5,
  "verdict": "go | corriger | stop",

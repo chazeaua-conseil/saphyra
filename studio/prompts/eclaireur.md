@@ -14,7 +14,8 @@ Ne repropose rien de ce qui existe déjà. Fiches de l'Atelier :
 Projets déjà explorés par le Studio, dont ceux abandonnés avec leur raison (n'y reviens pas, sauf angle vraiment différent) :
 {{studio}}
 
-Réponds uniquement par un bloc ```json contenant une liste de {{n}} objets :
+Réponds UNIQUEMENT par un bloc ```json, sans aucun texte avant ni après : ton raisonnement va dans les champs, en phrases courtes. Sois concis : 1 à 2 phrases par champ.
+Une liste de {{n}} objets :
 {
  "titre": "nom court et parlant",
  "domaine": "PM | CS | FI/CO | MM | SD | PP | QM | autre",

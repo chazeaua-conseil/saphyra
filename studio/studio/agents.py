@@ -35,6 +35,12 @@ def kill(p, agent, reason):
     db.event(p["id"], agent, "kill", reason)
 
 
+def block(p, agent, reason):
+    """Panne technique (pas un jugement) : le projet est mis de côté, relançable depuis le tableau de bord."""
+    db.update(p["id"], stage="bloquee", blocked_stage=p["stage"], kill_reason=f"[{agent}] {reason}"[:1000])
+    db.event(p["id"], agent, "erreur", "Projet bloqué (erreur technique) : " + reason[:500])
+
+
 def advance(p, stage, agent, summary):
     db.update(p["id"], stage=stage)
     db.event(p["id"], agent, "go", summary)
@@ -48,7 +54,7 @@ def eclaireur(cfg):
                            + (f" — {s['kill_reason'][:140]}" if s["kill_reason"] else "") + ")" for s in studio) or "(aucun)"
     n = cfg["brainstorm_batch"]
     out = llm.ask_json("eclaireur", system(cfg), llm.prompt("eclaireur", n=str(n), atelier=atelier, studio=studio_txt),
-                       max_tokens=12000)
+                       max_tokens=16000)
     created = 0
     for it in out if isinstance(out, list) else out.get("idees", []):
         title = (it.get("titre") or "").strip()
@@ -70,7 +76,7 @@ def panel(p, cfg):
     for pe in personas():
         a = llm.ask_json(f"panel-{pe['id']}", system(cfg),
                          llm.prompt("panel", nom=pe["nom"], profil=pe["profil"], brief=p["brief"]),
-                         pid=p["id"], max_tokens=3000)
+                         pid=p["id"], max_tokens=4000)
         avis[pe["id"]] = {"nom": pe["nom"], **a}
     notes = [float(a.get("note") or 0) for a in avis.values()]
     stops = [a for a in avis.values() if a.get("verdict") == "stop"]
@@ -113,7 +119,7 @@ def revue(p, cfg):
         a = llm.ask_json(f"revue-{pe['id']}", system(cfg),
                          llm.prompt("revue", nom=pe["nom"], profil=pe["profil"], avis_porte1=p["panel"].get(pe["id"], {}),
                                     ecrans=ecrans, archi={k: p["archi"].get(k) for k in ("archetype", "api", "ia", "moment_ia")}),
-                         pid=p["id"], images=shots, max_tokens=3000)
+                         pid=p["id"], images=shots, max_tokens=4000)
         avis[pe["id"]] = {"nom": pe["nom"], **a}
     notes = [float(a.get("note") or 0) for a in avis.values()]
     moy = round(mean(notes), 2)

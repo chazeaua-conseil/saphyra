@@ -13,7 +13,8 @@ Travail demandé :
 4. Conçois la maquette : 2 à 4 écrans, l'enchaînement, les données fictives réalistes (un client fictif cohérent : nom de société, sites, équipements ou documents avec des identifiants au format SAP), et le moment « waouh » où l'IA intervient (simulé dans la maquette).
 5. Si une API indispensable n'existe pas et ne peut pas être contournée proprement, dis-le : verdict « stop ».
 
-Réponds par un bloc ```json :
+Fais tes recherches, puis réponds UNIQUEMENT par un bloc ```json, sans aucun texte avant ni après : ton raisonnement va dans les champs, en phrases courtes.
+Format :
 {
  "verdict": "go | stop",
  "raison_stop": "",

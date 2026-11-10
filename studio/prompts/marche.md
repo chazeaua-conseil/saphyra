@@ -17,7 +17,8 @@ Travail demandé, avec la recherche web :
    - confiance : solidité des hypothèses (5 = vérifié) ;
    - vendabilite : probabilité qu'un client signe un POC payant dans les 6 mois.
 
-Réponds par un bloc ```json :
+Fais tes recherches, puis réponds UNIQUEMENT par un bloc ```json, sans aucun texte avant ni après : ton raisonnement va dans les champs, en phrases courtes.
+Format :
 {
  "concurrence": [{"acteur": "…", "offre": "…", "source": "url ou « connaissance générale »"}],
  "acheteur": "…",

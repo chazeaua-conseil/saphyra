@@ -38,6 +38,12 @@ BROKEN = "<!doctype html><html><body><script>undefinedFunction()</script></body>
 
 def fake(agent, system, messages, tools):
     calls.append(agent)
+    if agent.endswith("-json"):  # appel de réparation : le modèle léger reformate en JSON
+        return txt({"note": 4, "verdict": "go", "bloquant": "", "conditions": ["montrer la liste des pièces"], "cas_limites": []})
+    if agent == "panel-terrain" and calls.count("panel-terrain") == 1:  # bug du 10/11 : réponse en prose, sans JSON
+        return msg([TextBlock(type="text", text="## Mon avis de terrain\n\nLe problème est réel, je donnerais 4/5.")], "max_tokens")
+    if agent == "architecte" and "Panne" in json.dumps(messages, ensure_ascii=False):
+        raise RuntimeError("API indisponible")
     if agent == "eclaireur":
         return txt([{"titre": "Préparation des travaux assistée", "domaine": "PM", "pitch": "Vérifie qu'un OT est prêt."},
                     {"titre": "Idée faible", "domaine": "PM", "pitch": "Un tableau de plus."}])
@@ -74,6 +80,11 @@ def run():
     llm.FAKE = fake
     db.migrate()
     db.q("TRUNCATE studio_projects, studio_events, studio_usage, studio_state RESTART IDENTITY CASCADE")
+    # Une idée tuée par une erreur technique (ancien comportement) doit revenir au panel.
+    db.q("INSERT INTO studio_projects(slug, title, stage, kill_reason) VALUES('vieille','Vieille idée','tuee','[panel] Erreur technique répétée : JSON')")
+    db.migrate()
+    assert db.q1("SELECT stage FROM studio_projects WHERE slug='vieille'")["stage"] == "nouvelle"
+    db.q("DELETE FROM studio_projects WHERE slug='vieille'")
     log = [main.tick() for _ in range(25)]
     print("tours :", log)
     rows = db.q("SELECT title, stage, score, dev_loops, corrections, kill_reason, cost_usd FROM studio_projects ORDER BY id")
@@ -105,6 +116,15 @@ def run():
         assert e.code == 404
     # Le rédacteur passe en dernier : après l'évaluateur commercial, une seule fois, pour l'idée validée.
     assert calls.count("redacteur") == 1 and calls.index("marche") < calls.index("redacteur"), calls
+    assert "panel-terrain-json" in calls, "la réparation JSON n'a pas été appelée"
+    # Erreur technique répétée : le projet est bloqué (pas tué), puis relancé à la même étape.
+    r = db.q1("INSERT INTO studio_projects(slug, title, stage, brief) VALUES('panne','Panne','architecture','{\"titre\":\"Panne\"}') RETURNING id")
+    for _ in range(3):
+        main.tick()
+    b = db.project(r["id"])
+    assert b["stage"] == "bloquee" and b["blocked_stage"] == "architecture", b
+    db.relaunch(r["id"])
+    assert db.project(r["id"])["stage"] == "architecture"
     print("coût simulé du jour :", db.spent_today(), "$")
     print("OK — pipeline complet validé")
 

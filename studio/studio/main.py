@@ -72,7 +72,14 @@ def tick():
         db.event(p["id"], step.__name__, "erreur", f"Essai {fails[p['id']]} : {e}")
         log.error(traceback.format_exc())
         if fails[p["id"]] >= 3:
-            agents.kill(p, step.__name__, f"Erreur technique répétée : {e}")
+            agents.block(p, step.__name__, str(e))
+            fails.pop(p["id"], None)
+            # Disjoncteur : 3 projets bloqués en 24 h = problème de fond, on arrête de dépenser.
+            n = db.q1("SELECT count(*) n FROM studio_projects WHERE stage='bloquee' AND updated_at > now() - interval '24 hours'")["n"]
+            if n >= 3:
+                config.save({"paused": True})
+                db.event(None, "chef-de-projet", "erreur", f"{n} projets bloqués en 24 h : Studio mis en pause. "
+                         "Corriger la cause, relancer les projets, puis décocher la pause dans Réglages.")
     return "travail"
 
 

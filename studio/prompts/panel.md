@@ -6,7 +6,8 @@ Tu es exigeant et honnête. Ton rôle est d'éviter que le Studio dépense du te
 Idée à évaluer (porte 1, avant toute maquette) :
 {{brief}}
 
-Évalue de ton point de vue uniquement. Puis réponds par un bloc ```json :
+Évalue de ton point de vue uniquement. Réponds UNIQUEMENT par un bloc ```json, sans aucun texte avant ni après : ton raisonnement va dans les champs, en phrases courtes.
+Format :
 {
  "note": 1-5,                      // 1 = à jeter, 3 = intéressant sous conditions, 5 = je l'achète / je le déploie
  "verdict": "go | go_sous_conditions | stop",

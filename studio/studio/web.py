@@ -69,6 +69,13 @@ def dashboard(tok):
                    for p in act if p["stage"] != "prete")
     en_cours = f"<section><h2>En cours</h2>{pipe}<table>{rows or '<tr><td>Aucun projet en cours.</td></tr>'}</table></section>"
 
+    bl = db.q("SELECT * FROM studio_projects WHERE stage='bloquee' ORDER BY updated_at DESC")
+    rows = "".join(f"<tr><td><a href='p/{p['id']}'>{E(p['title'])}</a><br><span class='small'>{E((p['kill_reason'] or '')[:300])}</span></td>"
+                   f"<td><form method='post' action='action'><input type='hidden' name='id' value='{p['id']}'>"
+                   f"<button name='do' value='relancer' style='margin:0'>Relancer</button></form></td></tr>" for p in bl)
+    bloques = (f"<section class='warn'><h2>Bloqués par une erreur technique ({len(bl)})</h2><p class='small'>Ce n'est pas un jugement "
+               f"des agents : l'étape a échoué 3 fois. Relancer reprend à l'étape où le projet s'est arrêté.</p><table>{rows}</table></section>") if bl else ""
+
     dead = db.q("SELECT * FROM studio_projects WHERE stage='tuee' ORDER BY updated_at DESC LIMIT 50")
     rows = "".join(f"<tr><td><a href='p/{p['id']}'>{E(p['title'])}</a></td><td class='small'>{E(p['kill_reason'] or '')}</td></tr>" for p in dead)
     cimetiere = f"<section><details><summary><b>Cimetière ({counts.get('tuee', 0)})</b></summary><table>{rows}</table></details></section>"
@@ -77,7 +84,7 @@ def dashboard(tok):
     rows = "".join(f"<tr><td class='small'>{e['ts']:%d/%m %H:%M}</td><td class='{e['kind']}'>{E(e['agent'])}</td>"
                    f"<td><b>{E(e['title'] or '')}</b> {E(e['summary'][:300])}</td></tr>" for e in ev)
     fil = f"<section><h2>Fil des agents</h2><table>{rows}</table></section>"
-    return page("Studio SAPHYRA", warn + f"<section>{kpis}</section>" + a_revoir + en_cours + fil + cimetiere, tok)
+    return page("Studio SAPHYRA", warn + f"<section>{kpis}</section>" + bloques + a_revoir + en_cours + fil + cimetiere, tok)
 
 
 def detail(tok, pid):
@@ -189,6 +196,9 @@ class Handler(BaseHTTPRequestHandler):
         if rest and rest[0] == "action":
             cfg = config.load()
             try:
+                if form.get("do") == "relancer" and form.get("id", "").isdigit():
+                    db.relaunch(int(form["id"]))
+                    return self._send(200, dashboard(tok))
                 if form.get("do") == "digest":
                     n = digest.run(cfg)
                     msg = f"Récap envoyé ({n} maquette(s) livrée(s))."

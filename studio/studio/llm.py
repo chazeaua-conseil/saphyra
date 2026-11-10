@@ -101,13 +101,48 @@ def ask_json(agent, system, user, *, pid=None, images=None, web=False, light=Fal
             break
         msgs = msgs + [{"role": "assistant", "content": resp.content}]
         resp = call(agent, system, msgs, pid=pid, tools=tools, light=light, max_tokens=max_tokens, cfg=cfg)
-    return parse_json(text_of(resp))
+    txt = text_of(resp)
+    try:
+        if getattr(resp, "stop_reason", "") == "max_tokens":
+            raise ValueError("réponse coupée (max_tokens)")
+        return parse_json(txt)
+    except ValueError as e:
+        # Réparation : le modèle léger remet la réponse au format JSON demandé (quelques centimes).
+        fmt = user[-3000:]
+        fix = call(agent + "-json", "Tu convertis des réponses en JSON strict. Tu ne réponds que par un bloc ```json.",
+                   [{"role": "user", "content": f"Format attendu (fin de la consigne d'origine) :\n{fmt}\n\n"
+                                                f"Réponse à convertir (peut être incomplète, complète les champs au mieux "
+                                                f"à partir de son contenu) :\n{txt[-12000:]}\n\nRéponds uniquement par le bloc ```json."}],
+                   pid=pid, light=True, max_tokens=max(4000, max_tokens // 2), cfg=cfg)
+        try:
+            return parse_json(text_of(fix))
+        except ValueError:
+            raise ValueError(f"{e} ; réparation impossible")
 
 
 def parse_json(txt):
-    m = re.findall(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", txt, re.S)
-    cand = m[-1] if m else txt[txt.find("{"): txt.rfind("}") + 1]
+    """Extrait le JSON d'une réponse : bloc ```json s'il existe, sinon premier { ou [. Tolère du texte autour
+    et, pour une liste coupée, garde les objets complets."""
+    m = re.search(r"```(?:json)?\s*(.*?)(?:```|$)", txt, re.S)
+    body = m.group(1) if m else txt
+    starts = [i for i in (body.find("{"), body.find("[")) if i >= 0]
+    if not starts:
+        raise ValueError(f"Réponse sans JSON — début : {txt[:300]}")
+    body = body[min(starts):]
+    dec = json.JSONDecoder()
     try:
-        return json.loads(cand)
+        return dec.raw_decode(body)[0]
     except json.JSONDecodeError as e:
+        if body.startswith("["):  # liste coupée : on récupère les objets entiers
+            items, i = [], 1
+            while True:
+                while i < len(body) and body[i] in " \n\r\t,":
+                    i += 1
+                try:
+                    obj, i = dec.raw_decode(body, i)
+                    items.append(obj)
+                except json.JSONDecodeError:
+                    break
+            if items:
+                return items
         raise ValueError(f"Réponse JSON illisible : {e} — début : {txt[:300]}")
