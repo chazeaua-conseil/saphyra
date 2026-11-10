@@ -17,7 +17,7 @@ from psycopg.rows import dict_row
 from . import config
 
 # Étapes du pipeline, dans l'ordre. « tuee » et « livree » sont terminales.
-STAGES = ["nouvelle", "architecture", "dev", "revue", "doc", "marche", "prete"]
+STAGES = ["nouvelle", "architecture", "dev", "revue", "marche", "doc", "prete"]
 TERMINAL = ["livree", "tuee"]
 LABELS = {
     "nouvelle": "Panel métier", "architecture": "Architecture",

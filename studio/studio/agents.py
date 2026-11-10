@@ -131,36 +131,43 @@ def revue(p, cfg):
     db.update(p["id"], revue=avis)
     if moy < PORTE2_MOYENNE:
         return kill(p, "revue", f"Porte 2 refusée (moyenne {moy}/5, minimum {PORTE2_MOYENNE}).")
-    advance(p, "doc", "revue", f"Porte 2 franchie, moyenne {moy}/5.")
+    advance(p, "marche", "revue", f"Porte 2 franchie, moyenne {moy}/5.")
 
 
-# ------------------------------------------------------------- 6. Rédacteur
-def redacteur(p, cfg):
+# ------------------------------------------------------------- 6. Évaluateur commercial (porte 3)
+def dossier(p):
+    """Ce que l'évaluateur commercial juge : l'idée, les avis du panel, l'architecture, la revue de la maquette."""
     ecrans = [e["nom"] for e in (p["test"] or {}).get("ecrans", [])]
     revue = {k: v for k, v in (p["revue"] or {}).items() if not k.startswith("_")}
-    resp = llm.call("redacteur", system(cfg), [{"role": "user", "content": llm.prompt(
-        "redacteur", titre=p["title"], brief=p["brief"], panel=p["panel"], archi=p["archi"], revue=revue, ecrans=ecrans)}],
-        pid=p["id"], max_tokens=10000)
-    md = llm.text_of(resp).strip()
-    md = re.sub(r"^```(?:markdown)?\s*|\s*```$", "", md)
-    db.update(p["id"], doc_md=md)
-    advance(p, "marche", "redacteur", f"Document rédigé ({len(md.split())} mots).")
+    return json.dumps({"titre": p["title"], "idee": p["brief"], "panel_porte1": p["panel"], "architecture": p["archi"],
+                       "ecrans_maquette": ecrans, "revue_porte2": revue}, ensure_ascii=False, indent=1)
 
 
-# ------------------------------------------------------------- 7. Évaluateur commercial (porte 3)
 def marche(p, cfg):
-    m = llm.ask_json("marche", system(cfg), llm.prompt("marche", doc=p["doc_md"]), pid=p["id"], web=True, max_tokens=6000)
+    m = llm.ask_json("marche", system(cfg), llm.prompt("marche", dossier=dossier(p)), pid=p["id"], web=True, max_tokens=6000)
     s = m.get("scores", {})
     keys = ["valeur", "differenciation", "faisabilite", "confiance", "vendabilite"]
     score = round(mean(float(s.get(k) or 0) for k in keys), 2)
     db.update(p["id"], market=m, score=score)
-    p = db.project(p["id"])
-    docs.render(p)  # la doc publiée inclut la section commerciale
     if m.get("verdict") != "montrer" or score < PORTE3_SCORE or float(s.get("vendabilite") or 0) < PORTE3_VENDABILITE:
         return kill(p, "marche", f"Porte 3 refusée (score {score}/5). {m.get('raison', '')}")
+    advance(p, "doc", "marche", f"Porte 3 franchie, score {score}/5. {m.get('argument_cle', '')}")
+
+
+# ------------------------------------------------------------- 7. Rédacteur (en dernier, idées validées seulement)
+def redacteur(p, cfg):
+    ecrans = [e["nom"] for e in (p["test"] or {}).get("ecrans", [])]
+    revue = {k: v for k, v in (p["revue"] or {}).items() if not k.startswith("_")}
+    resp = llm.call("redacteur", system(cfg), [{"role": "user", "content": llm.prompt(
+        "redacteur", titre=p["title"], brief=p["brief"], panel=p["panel"], archi=p["archi"], revue=revue,
+        ecrans=ecrans, marche=p["market"])}], pid=p["id"], max_tokens=10000)
+    md = llm.text_of(resp).strip()
+    md = re.sub(r"^```(?:markdown)?\s*|\s*```$", "", md)
+    db.update(p["id"], doc_md=md)
+    docs.render(db.project(p["id"]))  # doc.html : texte du rédacteur + captures + section commerciale
     db.q("UPDATE studio_projects SET ready_at=now() WHERE id=%s", p["id"])
-    advance(p, "prete", "marche", f"Prête à montrer, score {score}/5. {m.get('argument_cle', '')}")
+    advance(p, "prete", "redacteur", f"Document rédigé ({len(md.split())} mots), maquette prête à revoir.")
 
 
 STEPS = {"nouvelle": panel, "architecture": architecte, "dev": developpeur,
-         "revue": revue, "doc": redacteur, "marche": marche}
+         "revue": revue, "marche": marche, "doc": redacteur}

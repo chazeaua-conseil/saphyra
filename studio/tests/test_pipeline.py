@@ -17,6 +17,7 @@ from studio import config, db, llm, main, web
 
 ids = itertools.count()
 dev_calls = {"n": 0}
+calls = []
 
 
 def msg(blocks, stop="end_turn"):
@@ -36,6 +37,7 @@ BROKEN = "<!doctype html><html><body><script>undefinedFunction()</script></body>
 
 
 def fake(agent, system, messages, tools):
+    calls.append(agent)
     if agent == "eclaireur":
         return txt([{"titre": "Préparation des travaux assistée", "domaine": "PM", "pitch": "Vérifie qu'un OT est prêt."},
                     {"titre": "Idée faible", "domaine": "PM", "pitch": "Un tableau de plus."}])
@@ -101,6 +103,8 @@ def run():
         raise AssertionError("jeton non vérifié")
     except urllib.error.HTTPError as e:
         assert e.code == 404
+    # Le rédacteur passe en dernier : après l'évaluateur commercial, une seule fois, pour l'idée validée.
+    assert calls.count("redacteur") == 1 and calls.index("marche") < calls.index("redacteur"), calls
     print("coût simulé du jour :", db.spent_today(), "$")
     print("OK — pipeline complet validé")
 
