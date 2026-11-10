@@ -17,6 +17,8 @@ from . import config, db, llm
 
 UI5_URL = os.environ.get("STUDIO_UI5_URL", "https://sdk.openui5.org/resources/sap-ui-core.js")
 MAX_TURNS = 40
+# Messages de Chromium sans effet sur la maquette (ne doivent pas déclencher une boucle de correction).
+IGNORE = ("Permissions policy violation",)
 
 TOOLS = [
     {"name": "write_file", "description": "Crée ou remplace un fichier de la maquette (chemin relatif à la racine, ex. view/Main.view.xml).",
@@ -158,7 +160,8 @@ def run_tests(root: Path, plan):
             for i, scr in enumerate(plan[:5]):
                 page = browser.new_page(viewport={"width": 1440, "height": 900}, locale="fr-FR")
                 errs = []
-                page.on("console", lambda m, e=errs: e.append("console : " + m.text[:300]) if m.type == "error" else None)
+                page.on("console", lambda m, e=errs: e.append("console : " + m.text[:300])
+                        if m.type == "error" and not any(x in m.text for x in IGNORE) else None)
                 page.on("pageerror", lambda ex, e=errs: e.append("exception JS : " + str(ex)[:300]))
                 page.on("response", lambda r, e=errs: e.append(f"HTTP {r.status} : {r.url.split('/')[-1]}")
                         if r.status >= 400 and "favicon" not in r.url else None)
