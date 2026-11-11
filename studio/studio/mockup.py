@@ -116,7 +116,8 @@ def develop(p, cfg, corrections=None):
                 if loops >= cfg["max_dev_loops"]:
                     return False, report, shots
                 results.append({"type": "tool_result", "tool_use_id": u.id, "is_error": True,
-                                "content": "Le testeur a trouvé des problèmes, corrige-les puis rappelle finish :\n" +
+                                "content": "Le testeur ne peut pas afficher certains écrans : corrige uniquement cela "
+                                           "(pas de logique ni d'intégration à ajouter), puis rappelle finish :\n" +
                                            json.dumps(report, ensure_ascii=False, indent=1)[:12000]})
             else:
                 try:
@@ -153,7 +154,7 @@ def run_tests(root: Path, plan):
         plan = [{"nom": "Accueil", "etapes": []}]
     srv = _serve(root)
     url = f"http://127.0.0.1:{srv.server_address[1]}/index.html"
-    problems, screens, shots = [], [], []
+    problems, minor, screens, shots = [], [], [], []  # problems = bloquants (écran vide, clic impossible)
     try:
         with sync_playwright() as pw:
             browser = pw.chromium.launch(args=["--no-sandbox", "--disable-dev-shm-usage"])
@@ -192,7 +193,7 @@ def run_tests(root: Path, plan):
                 blank = page.evaluate("() => document.body.innerText.trim().length") < 40
                 screens.append({"nom": name, "capture": f"_captures/{i + 1:02d}.png", "erreurs": errs[:10],
                                 "etape_impossible": step_fail, "ecran_vide": blank})
-                problems += [f"{name} — {e}" for e in errs[:5]]
+                minor += [f"{name} — {e}" for e in errs[:5]]
                 if step_fail:
                     problems.append("étape impossible : " + step_fail)
                 if blank:
@@ -201,7 +202,8 @@ def run_tests(root: Path, plan):
             browser.close()
     finally:
         srv.shutdown()
-    return {"ok": not problems, "problemes": problems, "ecrans": screens}, shots
+    # La maquette est un support de démonstration : seuls les défauts qui empêchent de la voir comptent.
+    return {"ok": not problems, "problemes": problems, "mineurs": minor, "ecrans": screens}, shots
 
 
 def load_shots(slug):

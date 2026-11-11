@@ -99,6 +99,9 @@ def conn():
 def migrate():
     with conn() as c:
         c.execute(SCHEMA)
+    # Le testeur n'est plus une porte (11/11/2026) : ses victimes repartent à la revue, coût remboursé.
+    q("""UPDATE studio_projects SET stage = 'revue', kill_reason = NULL, budget_extra = cost_usd
+          WHERE stage = 'tuee' AND kill_reason LIKE '[testeur]%%'""")
     if state("credit_20261110") is None:
         # Pannes du 10/11/2026 (JSON, architecte coupé) : on rembourse ce qu'elles ont coûté aux projets touchés,
         # et un projet tué entre-temps par le plafond du projet repart à la maquette.

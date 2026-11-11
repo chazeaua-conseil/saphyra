@@ -59,7 +59,8 @@ def fake(agent, system, messages, tools):
                     "ia": {"ou": "Generative AI Hub"}, "moment_ia": "contrôle de complétude", "ecrans": []})
     if agent == "developpeur":
         dev_calls["n"] += 1
-        content = BROKEN if dev_calls["n"] == 1 else GOOD
+        content = BROKEN if dev_calls["n"] in (1, 2, 3) and "Têtue" in json.dumps(system, ensure_ascii=False) else (
+            BROKEN if dev_calls["n"] == 1 else GOOD)
         plan = [{"nom": "Liste", "etapes": []}, {"nom": "Moment IA", "etapes": [{"action": "click", "cible": "text=Analyser avec l'IA"}]}]
         return msg([ToolUseBlock(type="tool_use", id=f"t{next(ids)}", name="write_file", input={"path": "index.html", "content": content}),
                     ToolUseBlock(type="tool_use", id=f"t{next(ids)}", name="finish", input={"resume": "ok", "scenario": plan})], "tool_use")
@@ -88,6 +89,12 @@ def run():
     db.migrate()
     assert db.q1("SELECT stage FROM studio_projects WHERE slug='vieille'")["stage"] == "nouvelle"
     db.q("DELETE FROM studio_projects WHERE slug='vieille'")
+    # Une idée tuée par le testeur (ancienne règle) repart à la revue.
+    db.q("INSERT INTO studio_projects(slug, title, stage, kill_reason, cost_usd) VALUES('testee','Testée','tuee','[testeur] Maquette non fonctionnelle', 2)")
+    db.migrate()
+    t = db.q1("SELECT * FROM studio_projects WHERE slug='testee'")
+    assert t["stage"] == "revue" and float(t["budget_extra"]) == 2, t
+    db.q("DELETE FROM studio_projects WHERE slug='testee'")
     log = [main.tick() for _ in range(25)]
     print("tours :", log)
     rows = db.q("SELECT title, stage, score, dev_loops, corrections, kill_reason, cost_usd FROM studio_projects ORDER BY id")
@@ -149,6 +156,13 @@ def run():
         raise AssertionError("plafond du projet non appliqué")
     except llm.BudgetExceeded:
         pass
+    # Une maquette qui reste défaillante passe quand même à la revue (jamais de cimetière technique).
+    from studio import agents
+    dev_calls["n"] = 0
+    r2 = db.q1("""INSERT INTO studio_projects(slug, title, stage, brief, archi) VALUES('tetue','Têtue','dev','{"titre":"Têtue"}','{}') RETURNING id""")
+    agents.developpeur(db.project(r2["id"]), config.load())
+    t = db.project(r2["id"])
+    assert t["stage"] == "revue" and not t["test"]["ok"], (t["stage"], t["test"])
     print("coût simulé du jour :", db.spent_today(), "$")
     print("OK — pipeline complet validé")
 

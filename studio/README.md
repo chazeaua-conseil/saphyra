@@ -5,8 +5,8 @@ Le Studio tourne en continu sur le VPS. Chaque nuit, il cherche des idées d'app
 ```
 Éclaireur ──► Panel métier ──► Architecte ──► Développeur ⇄ Testeur ──► Revue du POC ──► Évaluateur ──► Rédacteur ──► Chef de projet
  (idées)       PORTE 1         clean core      UI5        Chromium      PORTE 2          PORTE 3      (doc, en       Atelier + e-mail
-                 │               │ (pas d'API)    │ (3 échecs)            │ ⟲ 1 correction  │          dernier)
-                 └───────────────┴────────────────┴───────────────────────┴─────────────────┴──► cimetière
+                 │               │ (pas d'API)                          │ ⟲ 1 correction  │          dernier)
+                 └───────────────┴──────────────────────────────────────┴─────────────────┴──► cimetière
 ```
 
 Le Rédacteur passe en dernier : il n'écrit que pour les idées qui ont franchi les trois portes. Aucun document n'est rédigé pour une idée qui finit au cimetière.
@@ -19,13 +19,17 @@ Le Rédacteur passe en dernier : il n'écrit que pour les idées qui ont franchi
 | Panel métier | 4 personas notent l'idée séparément : terrain, processus, DSI clean core, acheteur | `prompts/panel.md`, `prompts/personas.json` | **1** : moyenne ≥ 3,0, pas 2 « stop », aucune note de 1 |
 | Architecte | Vérifie les API publiées (recherche web sur api.sap.com), choisit l'archétype, conçoit les écrans et le moment IA | `prompts/architecte.md` | « stop » si aucune API publiée |
 | Développeur | Écrit l'appli OpenUI5 (Horizon, données fictives, IA simulée) avec des outils de fichiers | `prompts/developpeur.md` | — |
-| Testeur | Sans modèle : rejoue le scénario dans Chromium, relève erreurs JS, 404, écran vide, clic impossible | `studio/mockup.py` | 3 échecs = cimetière |
+| Testeur | Sans modèle : rejoue le scénario dans Chromium et prend les captures. Seuls un écran vide ou un clic impossible renvoient au Développeur ; les erreurs de console sont notées, sans plus | `studio/mockup.py` | **jamais** : après 3 essais, la maquette passe à la revue avec ses défauts notés |
 | Revue du POC | Les 4 personas regardent les captures et vérifient leurs conditions de la porte 1 | `prompts/revue.md` | **2** : moyenne ≥ 3,3 ; une seule boucle de correction |
 | Évaluateur commercial | Juge le dossier (idée, avis du panel, architecture, revue de la maquette) ; recherche web sur la concurrence, acheteur, modèle économique, 6 notes | `prompts/marche.md` | **3** : score ≥ 3,2 et vendabilité ≥ 3 |
 | Rédacteur | En dernier, pour les idées validées seulement : pitch, problème, parcours, règles de gestion, architecture, avis du panel, pourquoi ça se vend, risques | `prompts/redacteur.md` | — |
 | Chef de projet | Fait avancer le projet le plus avancé, tient budget et quota, livre à l'heure du récap | `studio/main.py`, `studio/digest.py` | — |
 
 Les seuils sont en tête de `studio/agents.py`. Pour durcir ou assouplir le tri, c'est là.
+
+## Principe : une maquette est un support de démonstration
+
+Ce que le Studio livre : une idée, les avis du panel, une maquette cliquable (données fictives, IA simulée, aucune intégration) et une explication technique (API publiées, architecture, place de l'IA). La maquette n'a pas à être fonctionnelle. Une idée ne part au cimetière que sur un jugement (porte 1, 2 ou 3, ou absence d'API publiée) ; une panne technique la met au plus en « bloquée », relançable.
 
 ## Garde-fous
 

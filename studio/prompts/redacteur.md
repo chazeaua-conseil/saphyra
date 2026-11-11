@@ -6,6 +6,7 @@ Matière :
 - Architecture : {{archi}}
 - Revue de la maquette (porte 2) : {{revue}}
 - Écrans de la maquette : {{ecrans}}
+- Limites connues de la maquette (affichage) : {{limites}}
 - Évaluation commerciale (porte 3) : {{marche}}
 
 Écris en markdown, en français, avec exactement ces sections :
@@ -33,6 +34,9 @@ Archétype, API publiées (nom technique, lecture/écriture, vérifiée ou hypot
 
 ## Ce que le panel métier en pense
 Synthèse honnête : forces, réserves, conditions restantes. Pas de langue de bois.
+
+## Ce que montre la maquette, et ce qu'elle ne montre pas
+Support de démonstration : données fictives, IA simulée, aucune intégration. Dis ce qui serait réel dans le produit (API, IA, autorisations) et cite les limites d'affichage connues s'il y en a.
 
 ## Risques et questions ouvertes
 Liste numérotée.

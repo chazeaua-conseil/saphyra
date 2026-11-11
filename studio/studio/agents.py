@@ -104,10 +104,12 @@ def architecte(p, cfg):
 def developpeur(p, cfg):
     corrections = (p["revue"] or {}).get("_corrections") if p["corrections"] else None
     ok, report, _ = mockup.develop(p, cfg, corrections=corrections)
-    if not ok:
-        return kill(p, "testeur", "Maquette non fonctionnelle après les boucles de correction : "
-                    + "; ".join(report.get("problemes", [])[:4]))
-    advance(p, "revue", "testeur", f"Maquette fonctionnelle, {len(report.get('ecrans', []))} écrans capturés.")
+    db.update(p["id"], test=report)
+    n = len(report.get("ecrans", []))
+    # La maquette n'a pas à être fonctionnelle : une imperfection technique n'arrête jamais une idée.
+    advance(p, "revue", "testeur", f"Maquette prête, {n} écrans capturés." if ok else
+            f"Maquette avec défauts d'affichage, {n} écrans capturés ; on passe quand même à la revue. "
+            + "; ".join(report.get("problemes", [])[:3]))
 
 
 # ------------------------------------------------------------- 5. Revue du POC (porte 2)
@@ -166,7 +168,8 @@ def redacteur(p, cfg):
     revue = {k: v for k, v in (p["revue"] or {}).items() if not k.startswith("_")}
     resp = llm.call("redacteur", system(cfg), [{"role": "user", "content": llm.prompt(
         "redacteur", titre=p["title"], brief=p["brief"], panel=p["panel"], archi=p["archi"], revue=revue,
-        ecrans=ecrans, marche=p["market"])}], pid=p["id"], max_tokens=10000)
+        ecrans=ecrans, marche=p["market"], limites=(p["test"] or {}).get("problemes") or "aucune")}],
+        pid=p["id"], max_tokens=10000)
     md = llm.text_of(resp).strip()
     md = re.sub(r"^```(?:markdown)?\s*|\s*```$", "", md)
     db.update(p["id"], doc_md=md)
