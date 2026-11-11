@@ -8,7 +8,6 @@ Une maquette livrée devient une fiche normale de l'Atelier (table ideas).
 """
 import json
 import os
-from datetime import date
 from pathlib import Path
 
 import psycopg
@@ -201,34 +200,3 @@ def known_titles():
     ideas = q("SELECT title, pitch FROM ideas ORDER BY created_at DESC LIMIT 200")
     studio = q("SELECT title, stage, kill_reason FROM studio_projects ORDER BY id DESC LIMIT 300")
     return ideas, studio
-
-
-# ---------- Livraison dans l'Atelier ----------
-def deliver_to_atelier(p, urls):
-    b = p["brief"] or {}
-    m = p["market"] or {}
-    today = date.today().isoformat()
-    tasks = ["Revoir la maquette et la documentation",
-             "Décider : montrer à un client, approfondir ou abandonner"]
-    notes = (f"Maquette produite par le Studio IA.\n\n- Maquette : {urls['maquette']}\n- Documentation : {urls['doc']}\n"
-             f"- Score de vendabilité : {p['score']}/5\n- Coût de production : {float(p['cost_usd']):.2f} $")
-    body = ("## Notes\n" + notes + "\n\n## Plan d'action\n" + "\n".join(f"- [ ] {t}" for t in tasks) +
-            f"\n\n## Journal\n- **{today}** — Livrée par le Studio IA après panel métier, revue du POC et évaluation commerciale.\n")
-    scores = m.get("scores", {})
-    clamp = lambda v: max(1, min(5, round(float(v)))) if v not in (None, "") else None
-    with conn() as c, c.transaction():
-        row = c.execute("""INSERT INTO ideas(title, stage, type, priority, owner, tags, pitch, problem, target, value, business,
-                             next_step, valeur, effort, confiance, progress, body_md)
-                           VALUES(%s,'POC','Appli SAP','P2','Studio IA',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0.3,%s) RETURNING id""",
-                        (p["title"], ["Studio IA", "IA", "Clean core", "Fiori"] + ([p["domain"]] if p["domain"] else []),
-                         b.get("pitch", ""), b.get("probleme", ""), b.get("cible", ""), b.get("valeur", ""),
-                         m.get("modele_economique", ""), "Revoir la maquette",
-                         clamp(scores.get("valeur")), clamp(scores.get("effort")), clamp(scores.get("confiance")), body)).fetchone()
-        iid = row["id"]
-        for i, t in enumerate(tasks):
-            c.execute("INSERT INTO tasks(idea_id, position, text, done) VALUES(%s,%s,%s,false)", (iid, i, t))
-        c.execute("INSERT INTO journal(idea_id, position, entry_date, text) VALUES(%s,0,%s,%s)",
-                  (iid, today, "Livrée par le Studio IA après panel métier, revue du POC et évaluation commerciale."))
-        c.execute("UPDATE studio_projects SET stage='livree', idea_id=%s, delivered_at=now(), updated_at=now() WHERE id=%s",
-                  (iid, p["id"]))
-    return iid

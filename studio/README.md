@@ -42,7 +42,9 @@ Ce que le Studio livre : une idée, les avis du panel, une maquette cliquable (d
 ## Où regarder
 
 - **Tableau de bord** : `https://srv1429117.hstgr.cloud/saphyra/studio/<jeton>/`. On y trouve les maquettes à revoir, les projets en cours, le fil des agents, le cimetière avec ses raisons et le budget. Le jeton est écrit dans les journaux du conteneur au démarrage.
-- **Atelier** : chaque maquette livrée devient une fiche au stade POC, avec le propriétaire « Studio IA », les liens vers la maquette et la doc, et deux tâches.
+- **Atelier** : dès qu'une idée franchit la porte 1, elle a sa fiche (propriétaire « Studio IA »), tenue à jour à chaque étape (`studio/atelier.py`) :
+  Exploration (architecture, maquette) → Cadrage (revue, vendabilité, doc) → POC (prête, livrée, + 2 tâches de revue) ; « En pause » si panne technique ; « Abandonné » si tuée aux portes 2 ou 3, avec la raison.
+  Le Studio écrit les Notes (avis du panel, architecture, liens) et les entrées de journal « Studio — … » ; tes tâches et tes entrées de journal sont conservées. Change le propriétaire de la fiche pour la reprendre : le Studio cesse alors de la modifier.
 - **SQL** : `studio_projects` (une ligne par idée, avec tous les avis en JSON), `studio_events` (le fil), `studio_usage` (le coût).
 
 ## Faire évoluer

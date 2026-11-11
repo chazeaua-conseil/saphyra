@@ -8,7 +8,7 @@ import re
 import unicodedata
 from statistics import mean
 
-from . import config, db, docs, llm, mockup
+from . import atelier, config, db, docs, llm, mockup
 
 # ---- Seuils des portes (à ajuster après quelques semaines d'observation) ----
 PORTE1_MOYENNE = 3.0     # panel métier sur l'idée
@@ -33,17 +33,20 @@ def slugify(t):
 def kill(p, agent, reason):
     db.update(p["id"], stage="tuee", kill_reason=f"[{agent}] {reason}"[:1000])
     db.event(p["id"], agent, "kill", reason)
+    atelier.sync(p["id"])
 
 
 def block(p, agent, reason):
     """Panne technique (pas un jugement) : le projet est mis de côté, relançable depuis le tableau de bord."""
     db.update(p["id"], stage="bloquee", blocked_stage=p["stage"], kill_reason=f"[{agent}] {reason}"[:1000])
     db.event(p["id"], agent, "erreur", "Projet bloqué (erreur technique) : " + reason[:500])
+    atelier.sync(p["id"])
 
 
 def advance(p, stage, agent, summary):
     db.update(p["id"], stage=stage)
     db.event(p["id"], agent, "go", summary)
+    atelier.sync(p["id"])  # dès la porte 1 franchie, la fiche de l'Atelier suit le projet
 
 
 # ------------------------------------------------------------- 1. Éclaireur
@@ -135,7 +138,8 @@ def revue(p, cfg):
     if corr and p["corrections"] < 1:
         avis["_corrections"] = corr[:12]
         db.update(p["id"], revue=avis, corrections=p["corrections"] + 1, stage="dev")
-        return db.event(p["id"], "revue", "info", f"Moyenne {moy}/5 — {len(corr)} corrections demandées, retour au développeur.")
+        db.event(p["id"], "revue", "go", f"Moyenne {moy}/5 — {len(corr)} corrections demandées, retour au développeur.")
+        return atelier.sync(p["id"])
     db.update(p["id"], revue=avis)
     if moy < PORTE2_MOYENNE:
         return kill(p, "revue", f"Porte 2 refusée (moyenne {moy}/5, minimum {PORTE2_MOYENNE}).")

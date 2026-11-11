@@ -64,7 +64,9 @@ def dashboard(tok):
     a_revoir = f"<section><h2>Maquettes à revoir</h2><table><tr><th>Application</th><th>Score</th><th>Liens</th><th class='hide-m'>Atelier</th></tr>{rows or '<tr><td colspan=4>Rien pour le moment.</td></tr>'}</table></section>"
 
     act = db.active_projects()
-    rows = "".join(f"<tr><td><a href='p/{p['id']}'>{E(p['title'])}</a></td><td><span class='tag'>{E(db.LABELS.get(p['stage'], p['stage']))}</span></td>"
+    refs = {r["id"]: r["ref"] for r in db.q("SELECT id, ref FROM ideas WHERE owner='Studio IA'")}
+    rows = "".join(f"<tr><td><a href='p/{p['id']}'>{E(p['title'])}</a>" + (f" <span class='small'>IDEE-{refs[p['idea_id']]}</span>" if p["idea_id"] in refs else "") +
+                   f"</td><td><span class='tag'>{E(db.LABELS.get(p['stage'], p['stage']))}</span></td>"
                    f"<td>{float(p['cost_usd']):.2f} $</td><td class='hide-m small'>{p['updated_at']:%d/%m %H:%M}</td></tr>"
                    for p in act if p["stage"] != "prete")
     en_cours = f"<section><h2>En cours</h2>{pipe}<table>{rows or '<tr><td>Aucun projet en cours.</td></tr>'}</table></section>"

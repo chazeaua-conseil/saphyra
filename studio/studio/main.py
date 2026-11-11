@@ -12,7 +12,7 @@ import time
 import traceback
 from datetime import datetime
 
-from . import agents, config, db, digest, llm, web
+from . import agents, atelier, config, db, digest, llm, web
 
 log = logging.getLogger("studio")
 fails = {}
@@ -96,6 +96,7 @@ def main():
         except Exception as e:
             log.warning("base indisponible (%s), nouvel essai", e)
             time.sleep(5)
+    atelier.backfill()
     web.serve(8080)
     log.info("Tableau de bord : %s/", config.base_url())
     while True:

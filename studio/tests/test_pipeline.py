@@ -106,6 +106,11 @@ def run():
     p = db.q1("SELECT * FROM studio_projects WHERE stage='prete'")
     root = config.MAQUETTES / p["slug"]
     assert (root / "doc.html").exists() and len(list((root / "_captures").glob("*.png"))) == 2
+    # Atelier : la fiche existe dès la porte 1 franchie (avant livraison), l'idée tuée au panel n'y est pas.
+    pre = db.q1("SELECT * FROM ideas WHERE id=%s", p["idea_id"])
+    assert pre and pre["owner"] == "Studio IA" and pre["stage"] == "POC" and "Panel métier (porte 1)" in pre["body_md"], pre
+    assert not db.q1("SELECT 1 FROM ideas WHERE title='Idée faible'")
+    assert db.q1("SELECT count(*) n FROM journal WHERE idea_id=%s AND text LIKE 'Studio — %%'", p["idea_id"])["n"] >= 4
     from studio import digest
     n = digest.run(config.load())
     assert n == 1
@@ -159,10 +164,20 @@ def run():
     # Une maquette qui reste défaillante passe quand même à la revue (jamais de cimetière technique).
     from studio import agents
     dev_calls["n"] = 0
-    r2 = db.q1("""INSERT INTO studio_projects(slug, title, stage, brief, archi) VALUES('tetue','Têtue','dev','{"titre":"Têtue"}','{}') RETURNING id""")
+    r2 = db.q1("""INSERT INTO studio_projects(slug, title, stage, brief, archi, panel)
+                  VALUES('tetue','Têtue','dev','{"titre":"Têtue"}','{}','{"terrain":{"nom":"Terrain","note":4,"verdict":"go"}}') RETURNING id""")
     agents.developpeur(db.project(r2["id"]), config.load())
     t = db.project(r2["id"])
     assert t["stage"] == "revue" and not t["test"]["ok"], (t["stage"], t["test"])
+    # Tuée à la porte 2 : la fiche de l'Atelier passe en « Abandonné », avec la raison.
+    agents.kill(t, "revue", "Porte 2 refusée (moyenne 2.5/5).")
+    i = db.q1("SELECT * FROM ideas WHERE id=(SELECT idea_id FROM studio_projects WHERE id=%s)", r2["id"])
+    assert i["stage"] == "Abandonné" and "Porte 2 refusée" in i["body_md"], i
+    # André reprend la fiche (autre propriétaire) : le Studio n'y touche plus.
+    db.q("UPDATE ideas SET owner='André', stage='Cadrage' WHERE id=%s", i["id"])
+    from studio import atelier
+    atelier.sync(r2["id"])
+    assert db.q1("SELECT stage FROM ideas WHERE id=%s", i["id"])["stage"] == "Cadrage"
     print("coût simulé du jour :", db.spent_today(), "$")
     print("OK — pipeline complet validé")
 

@@ -7,7 +7,7 @@ import html
 import smtplib
 from email.message import EmailMessage
 
-from . import config, db
+from . import atelier, config, db
 
 
 def run(cfg):
@@ -16,7 +16,8 @@ def run(cfg):
     delivered = []
     for p in ready:
         urls = {"maquette": f"{base}/m/{p['slug']}/index.html", "doc": f"{base}/m/{p['slug']}/doc.html"}
-        iid = db.deliver_to_atelier(p, urls)
+        db.q("UPDATE studio_projects SET stage='livree', delivered_at=now(), updated_at=now() WHERE id=%s", p["id"])
+        iid = atelier.sync(p["id"])
         db.event(p["id"], "chef-de-projet", "go", f"Livrée dans l'Atelier (fiche {iid}).")
         delivered.append((p, urls))
     spent = db.q1("""SELECT coalesce(sum(cost_usd),0) s FROM studio_usage WHERE ts > now() - interval '24 hours'""")["s"]
